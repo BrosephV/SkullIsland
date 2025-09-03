@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skull Base</title>
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0d0c1d;
+            /* Darker background for neon effect */
+            background-image: url('background.gif');
+            /* Maintained for visual effect */
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-position: center center;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        /* General button class for all links */
+.btn {
+    display: block;                 /* makes padding work nicely */
+    position: relative;             /* for gradient div */
+    padding: 0.75rem 2rem;          /* vertical/horizontal padding */
+    text-align: center;             /* centers text */
+    font-weight: bold;
+    color: #1b0707;                
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 15px rgba(0,0,0,0.2);
+    overflow: hidden;
+    transform: translateX(0);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    font-size: 1.5rem;              /* base size */
+}
+
+/* Hover effects */
+.btn:hover {
+    transform: translateX(1rem) scale(1.1);
+    box-shadow: 0 15px 25px rgba(0,0,0,0.3);
+}
+
+/* Responsive font sizes */
+@media (min-width: 768px) {
+    .btn { font-size: 1.875rem; }   /* md:text-3xl */
+}
+@media (min-width: 1024px) {
+    .btn { font-size: 2.25rem; }    /* lg:text-4xl */
+}
+
+/* Gradient background */
+.btn-bg-gradient {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: linear-gradient(to right, rgba(59, 130, 246, 1), rgba(0, 255, 255, 1));
+    border-radius: 0.5rem;
+    transition: opacity 0.2s ease-in-out;
+    z-index: -1; 
+}
+
+        /* Style to remove default list item styling */
+        .list-none {
+            list-style-type: none;
+        }
+    </style>
+</head>
+
+<body class="flex items-center justify-center min-h-screen text-white">
+    <div class="relative w-full h-screen">
+        <h1
+            class="absolute top-4 left-1/2 -translate-x-1/2 text-3xl font-bold text-gray-200 z-10 p-2 rounded-md bg-gray-800 bg-opacity-70">
+            Home Base
+        </h1>
+        <div id="container" class="w-full h-full flex items-center justify-center"></div>
+        <div id="message-box"
+            class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-yellow-500 text-gray-900 p-3 rounded-md shadow-lg hidden">
+            <p>Error: Could not load the STL model. Please ensure 'your-skull-model.stl' is in the same directory as
+                this HTML file.</p>
+        </div>
+
+        <!-- Left Buttons Container -->
+        <ul class="list-none absolute left-48 top-1/2 -translate-y-1/2 flex flex-col items-center space-y-12 z-20 ">
+            <!-- Left Button 1 (Top) -->
+            <li>
+                <a href="../subredditPop3d/subredditPop3d.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    3D Pop<br>Subreddits
+                </a>
+            </li>
+            <!-- Left Button 2 (Middle) -->
+            <li class="list-none relative">
+                <a href="../workingDnd/sperated/index.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    D&D <br>Character<br> Randomizer
+                </a>
+            </li>
+            <!-- Left Button 3 (Bottom) -->
+            <li>
+                <a href="../photoHeightMap/photoHeight.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    Photo Height <br> Map
+                </a>
+            </li>
+            <li>
+                <a href="../../randombullshit/consciousnesswaves.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    Consciousness <br> Wave Mapping
+                </a>
+            </li>
+        </ul>
+
+        <!-- Right Buttons Container -->
+        <ul class="list-none absolute right-48 top-1/2 -translate-y-1/2 flex flex-col items-center space-y-12 z-20">
+            <!-- Right Button 1 (Top) -->
+            <li>
+                <a href="../redditmap/index.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    Reddit <br>Word Map
+                </a>
+            </li>
+            <!-- Right Button 2 (Middle) -->
+            <li>
+                <a href="../../randombullshit/cubevac.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    Cube Vacuum
+                </a>
+            </li>
+            <!-- Right Button 3 (Bottom) -->
+            <li>
+                <a href="../../randombullshit/freeDnd3jstest.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    D&D 3D Test
+                </a>
+            </li>
+            <li>
+                <a href="../../randombullshit/racingSim.html" class="btn">
+                    <div class="btn-bg-gradient"></div>
+                    Racing Sim
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+
+    <script type="module">
+        let scene, camera, renderer, skullModel, skullContainer;
+
+        const initialModelRotationX = -Math.PI / 2;
+        const initialModelRotationY = 0;
+        const initialContainerRotationY = 0;
+
+        const container = document.getElementById('container');
+        const messageBox = document.getElementById('message-box');
+
+        const maxOscillationDegrees = 25;
+        const oscillationSpeed = 0.0008;
+
+        let mouseX = 0;
+        let mouseY = 0;
+        let smoothMouseX = 0;
+        let smoothMouseY = 0;
+        // Increased rotation sensitivity for better mouse following
+        const rotationSensitivity = 0.8;
+        const mouseInterpolationFactor = 0.2;
+
+        let mouseActive = false;
+        let mouseMoveTimeout;
+        const mouseIdleDelay = 500;
+
+        function showMessage(message) {
+            messageBox.innerHTML = `<p>${message}</p>`;
+            messageBox.classList.remove('hidden');
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+
+            // Set renderer to be transparent
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // Added alpha: true
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0.5, 3);
+            camera.lookAt(0, 0, 0);
+
+            // Updated lighting setup to add more fill and contrast
+            const ambientLight = new THREE.AmbientLight(0x1a0d2e, 0.3);
+            scene.add(ambientLight);
+
+            // Added a subtle hemisphere light to provide some fill light from above
+            const hemisphereLight = new THREE.HemisphereLight(0x00ffff, 0xff00ff, 2.5);
+            scene.add(hemisphereLight);
+
+            const cyanPointLight = new THREE.PointLight(0x00ffff, 3.0, 10);
+            cyanPointLight.position.set(0, 0.5, 2); // Moved slightly forward for a more dynamic highlight
+            scene.add(cyanPointLight);
+
+            const bluePointLight = new THREE.PointLight(0xff0000, 2, 2);
+            bluePointLight.position.set(-2, 2, 2);
+            scene.add(bluePointLight);
+
+            const magentaPointLight = new THREE.PointLight(0xff00aa, .8, 2.7);
+            magentaPointLight.position.set(2, .2, 3);
+            scene.add(magentaPointLight);
+
+            const loader = new THREE.STLLoader();
+            loader.load(
+                'your-skull-model.stl',
+                function (geometry) {
+                    // Updated material to be more reflective and brighter to catch light better
+                    const material = new THREE.MeshStandardMaterial({
+                        color: 0xcccccc, // Lighter gray to show more detail
+                        roughness: 0.3, // Lower roughness for a shinier, more reflective surface
+                        metalness: 0.9, // Higher metalness for a more metallic sheen
+                        emissive: 0x002222, // Subtle cyan emissive glow
+                        emissiveIntensity: 0.5
+                    });
+
+                    skullModel = new THREE.Mesh(geometry, material);
+
+                    geometry.computeBoundingBox();
+                    const boundingBox = geometry.boundingBox;
+                    const size = new THREE.Vector3();
+                    boundingBox.getSize(size);
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const scale = 2.8 / maxDim;
+                    skullModel.scale.set(scale * 1.24, scale, scale);
+
+                    skullModel.geometry.center();
+                    skullModel.rotation.x = initialModelRotationX;
+                    skullModel.rotation.y = initialModelRotationY;
+
+                    skullContainer = new THREE.Group();
+                    skullContainer.add(skullModel);
+                    scene.add(skullContainer);
+
+                    skullContainer.rotation.y = initialContainerRotationY;
+
+                    skullModel.castShadow = true;
+                    skullModel.receiveShadow = true;
+
+                    animate();
+                },
+                function (xhr) { console.log((xhr.loaded / xhr.total * 100) + '% loaded'); },
+                function (error) {
+                    console.error('Error loading STL:', error);
+                    showMessage("Error: Could not load 'your-skull-model.stl'. Make sure the file exists and is valid.");
+                }
+            );
+
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('touchmove', onTouchMove, { passive: false });
+            window.addEventListener('mouseleave', onMouseLeave, false);
+            window.addEventListener('touchend', onTouchEnd, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onMouseMove(event) {
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            mouseActive = true;
+            clearTimeout(mouseMoveTimeout);
+            mouseMoveTimeout = setTimeout(() => { mouseActive = false; }, mouseIdleDelay);
+        }
+
+        function onTouchMove(event) {
+            event.preventDefault();
+            if (event.touches.length > 0) {
+                mouseX = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                mouseY = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+
+                mouseActive = true;
+                clearTimeout(mouseMoveTimeout);
+                mouseMoveTimeout = setTimeout(() => { mouseActive = false; }, mouseIdleDelay);
+            }
+        }
+
+        function onMouseLeave() { mouseActive = false; clearTimeout(mouseMoveTimeout); }
+        function onTouchEnd() { mouseActive = false; clearTimeout(mouseMoveTimeout); }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (skullContainer && skullModel) {
+                smoothMouseX += (mouseActive ? mouseX - smoothMouseX : 0 - smoothMouseX) * mouseInterpolationFactor;
+                smoothMouseY += (mouseActive ? mouseY - smoothMouseY : 0 - smoothMouseY) * mouseInterpolationFactor;
+
+                // Smooth Z oscillation
+                const oscillationAngleZ = THREE.MathUtils.degToRad(maxOscillationDegrees) * Math.sin(Date.now() * oscillationSpeed);
+                if (!mouseActive) {
+                    // Gradual transition into oscillation when idle
+                    skullModel.rotation.z += (oscillationAngleZ - skullModel.rotation.z) * 0.05;
+                } else {
+                    // More gradual transition back to 0 rotation when mouse is active
+                    skullModel.rotation.z += (0 - skullModel.rotation.z) * 0.05;
+                }
+
+                // Increased the multiplier for a more pronounced left/right movement
+                const mouseOffset_Y_Rotation = THREE.MathUtils.degToRad(smoothMouseX * rotationSensitivity * 30);
+                const mouseOffset_X_Rotation = THREE.MathUtils.degToRad(-smoothMouseY * rotationSensitivity * 20);
+
+                const targetContainerXRotation = mouseOffset_X_Rotation;
+                const targetContainerYRotation = initialContainerRotationY + mouseOffset_Y_Rotation;
+
+                // Apply a smoothing factor to container rotation, with a less aggressive one when idle
+                const smoothingFactor = mouseActive ? 0.1 : 0.02;
+                skullContainer.rotation.x += (targetContainerXRotation - skullContainer.rotation.x) * smoothingFactor;
+                skullContainer.rotation.y += (targetContainerYRotation - skullContainer.rotation.y) * smoothingFactor;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
