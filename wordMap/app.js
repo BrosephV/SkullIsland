@@ -69,20 +69,14 @@ function RedditWordMap() {
       return;
     }
 
-    const url = cleanSubreddit === 'all'
-      ? "https://www.reddit.com/r/all.json?limit=100"
-      : `https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`;
+      const proxy = 'https://cors-anywhere.herokuapp.com/';
+    const redditUrl = `https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`;
+const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`)}`;
 
-    fetch(url, {
-      headers: {
-        'User-Agent': 'web:RedditWordMap:v1.0.0 (by /u/YourRedditUsername)' // Replace with your Reddit username
-      }
-    })
+    fetch(url)
       .then(res => {
         if (!res.ok) {
-          return res.text().then(text => {
-            throw new Error(`Subreddit '${cleanSubreddit}' not found or inaccessible. Server responded with: ${res.status} ${res.statusText}`);
-          });
+          throw new Error(`HTTP error ${res.status}`);
         }
         return res.json();
       })
