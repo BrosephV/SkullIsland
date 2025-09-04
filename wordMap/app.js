@@ -71,7 +71,7 @@ function RedditWordMap() {
 
       const proxy = 'https://cors-anywhere.herokuapp.com/';
     const redditUrl = `https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`;
- const url = `https://api.codetabs.dev/v1/proxy/?quest=${encodeURIComponent(`https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`)}`;
+     const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`)}`;
 
     fetch(url)
       .then(res => {
@@ -88,7 +88,6 @@ function RedditWordMap() {
         alert(`Error fetching subreddit: ${e.message}`);
         setLoading(false);
       });
-  };
 
   useEffect(() => {
     if (subreddit) {
