@@ -71,7 +71,7 @@ function RedditWordMap() {
 
       const proxy = 'https://cors-anywhere.herokuapp.com/';
     const redditUrl = `https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`;
-const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`)}`;
+ const url = `https://api.codetabs.dev/v1/proxy/?quest=${encodeURIComponent(`https://www.reddit.com/r/${cleanSubreddit}.json?limit=100`)}`;
 
     fetch(url)
       .then(res => {
@@ -940,3 +940,4 @@ const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(RedditWordMap));
+
