@@ -615,6 +615,21 @@ const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/
 
   return React.createElement("div", {style:{width:"100%",height:"100%",position:"relative",overflow:"hidden"}},
     React.createElement("header", null,
+      React.createElement("a", {
+        href: "https://www.paypal.com/ncp/payment/CF6Q5YMAUUJ5J",
+        target: "_blank",
+        rel: "noopener noreferrer",
+        style: {
+          fontSize: '1rem',
+          color: '#4a90e2',
+          textDecoration: 'underline',
+          marginRight: '10px',
+          position: 'absolute',
+          left: '12px',
+          top: '50%',
+          transform: 'translateY(-50%)'
+        }
+      }, "buy me a coffee?"),
       React.createElement("span", null, "Reddit Word Map"),
       React.createElement("input", {
         type: "text",
@@ -940,3 +955,4 @@ const url = `https://corsproxy.io/?${encodeURIComponent(`https://www.reddit.com/
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(RedditWordMap));
+
