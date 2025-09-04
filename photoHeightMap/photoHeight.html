@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Pin Art with Colored Image Overlay</title>
+    <!-- Tailwind CSS CDN for modern styling and responsiveness -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the canvas to ensure it fills the screen */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Inter', sans-serif; /* Using Inter font */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <!-- Import map for Three.js modules -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+</head>
+<body class="bg-black text-gray-100 font-sans">
+    <!-- Loading message, centered and styled with Tailwind -->
+    <div id="loading" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-lg z-50">Enter image URL or upload file</div>
+
+    <!-- UI container, positioned at top-left and styled with Tailwind -->
+    <div id="ui" class="absolute top-4 left-4 bg-gray-900 bg-opacity-70 p-4 rounded-xl shadow-lg flex flex-col space-y-4 md:flex-row md:space-x-4 md:space-y-0 z-40">
+        <div class="flex items-center space-x-4">
+            <label for="imageUrl" class="text-white text-sm font-medium">Image URL:</label>
+            <input type="text" id="imageUrl" value="https://i.imgur.com/znBuPQh.jpeg"
+                   class="flex-grow w-full md:w-72 lg:w-96 p-2 rounded-md border border-gray-600 bg-gray-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button id="loadButton"
+                    class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition-colors duration-300 ease-in-out">
+                Load URL
+            </button>
+            <label for="fileInput" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow-md transition-colors duration-300 ease-in-out cursor-pointer">
+                Upload Image
+                <input type="file" id="fileInput" accept="image/*" class="hidden">
+            </label>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <input type="checkbox" id="toggleTopology" class="form-checkbox h-5 w-5 text-blue-600 rounded" checked>
+                <label for="toggleTopology" class="text-white text-sm font-medium">Topology</label>
+            </div>
+            <div class="flex items-center space-x-2">
+                <input type="checkbox" id="toggleProceduralColor" class="form-checkbox h-5 w-5 text-blue-600 rounded">
+                <label for="toggleProceduralColor" class="text-white text-sm font-medium">Procedural Color</label>
+            </div>
+            <div class="flex items-center space-x-2">
+                <label for="heightIntensityInput" class="text-white text-sm font-medium">Height Intensity:</label>
+                <input type="number" id="heightIntensityInput" value="0.8" step="0.1" min="0.1" max="2.0"
+                       class="w-20 p-2 rounded-md border border-gray-600 bg-gray-800 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- Scene Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a); // Dark background for the scene
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 12); // Initial camera position for a good view
+        const renderer = new THREE.WebGLRenderer({ antialias: true }); // Enable anti-aliasing for smoother edges
+        renderer.setSize(window.innerWidth, window.innerHeight); // Set renderer size to fill the window
+        renderer.setPixelRatio(window.devicePixelRatio); // Adjust for high-DPI screens
+        document.body.appendChild(renderer.domElement); // Add the renderer's DOM element to the body
+
+        // --- Orbit Controls ---
+        // Allows the user to rotate, pan, and zoom the camera with the mouse
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Enable smooth camera movement
+        controls.dampingFactor = 0.05; // Damping factor for smooth deceleration
+
+        // --- Pin Art Parameters ---
+        const gridSize = 400; // Number of pins along one side (gridSize x gridSize total pins) - Increased for higher resolution
+        const spacing = 0.04; // Spacing between individual pins - Adjusted to maintain physical size of the grid
+        const maxHeight = 2; // Maximum height a pin can extend to
+        const minHeight = 0.01; // Minimum height for a pin, prevents pins from disappearing
+        const animationDuration = 3; // Duration (in seconds) for the initial pin rise animation
+        const lerpFactor = 0.15; // Interpolation factor for smooth pin height changes (lower = smoother)
+        const hoverPeakHeightIncrease = 1.0; // How much extra height pins gain on hover
+        const hoverRadiusGridUnits = 5; // Radius of the hover effect in grid units
+        let heightIntensity = 0.8; // Controls the overall intensity/scale of height variations
+
+        // --- Pin Geometry and Material ---
+        // Increased the radius slightly to make pins appear more dense and fill space
+        const geometry = new THREE.CylinderGeometry(0.025, 0.025, 1, 6); // Simple cylinder shape for each pin
+        // Changed to MeshBasicMaterial for unlit appearance
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x666666, // Darker grey color for the pins for better contrast
+            transparent: true, // Enable transparency for the pins
+            opacity: 1 // Initial opacity (will be set to 0 based on initial toggle state)
+        });
+
+        // --- Instanced Mesh for Pins ---
+        // An efficient way to render many identical objects with different transformations
+        const count = gridSize * gridSize; // Total number of pins
+        const pins = new THREE.InstancedMesh(geometry, material, count);
+        scene.add(pins); // Add the instanced mesh to the scene
+        pins.visible = false; // Initially hide pins as procedural color toggle is off by default
+
+        // --- Pixel Layer (Plane with Shader) ---
+        // This plane sits slightly above the pins and uses a shader to display colors
+        // corresponding to the pin heights, creating a pixelated effect.
+        // The plane has segments equal to the grid size to allow vertex displacement per pixel.
+        const planeGeometry = new THREE.PlaneGeometry(gridSize * spacing, gridSize * spacing, gridSize - 1, gridSize - 1);
+        
+        // Texture to store height values (grayscale brightness) for vertex displacement
+        const heightTexture = new THREE.DataTexture(
+            new Float32Array(count), // Single channel (red) to store height values (normalized 0-1)
+            gridSize,
+            gridSize,
+            THREE.RedFormat, // Using red channel for grayscale height
+            THREE.FloatType // Storing heights as floats for precision
+        );
+        heightTexture.needsUpdate = true; // Mark for update every frame when height data changes
+
+        // Texture to store color values (RGBA) for the pixel overlay
+        const colorTexture = new THREE.DataTexture(
+            new Uint8Array(count * 4), // RGBA for each pixel
+            gridSize,
+            gridSize,
+            THREE.RGBAFormat, // RGBA format
+            THREE.UnsignedByteType // Storing color components as bytes (0-255)
+        );
+        colorTexture.needsUpdate = true; // Mark for update every frame when color data changes
+
+        const pixelOffsetFromPinTop = 0.01; // Small offset to lift pixels slightly above pins
+
+        // ShaderMaterial for the pixel layer, defining how it's rendered
+        const planeMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                heightTexture: { value: heightTexture }, // Pass height data from JS to shader
+                colorTexture: { value: colorTexture },   // Pass color data from JS to shader
+                gridSize: { value: gridSize },           // Pass grid size for calculations
+                minHeight: { value: minHeight },         // Min height for color mapping
+                maxHeight: { value: maxHeight },         // Max height for color mapping
+                offsetFromPinTop: { value: pixelOffsetFromPinTop }, // Offset to lift pixels
+                u_showTopology: { value: true }, // New uniform to control topology display
+                u_showProceduralColor: { value: false } // New uniform to control procedural color display
+            },
+            vertexShader: `
+                uniform sampler2D heightTexture;
+                uniform float maxHeight;
+                uniform float offsetFromPinTop;
+                uniform bool u_showTopology; // New uniform for topology toggle
+                uniform float minHeight; // Pass minHeight to the shader
+                varying vec2 vUv; // Pass UV coordinates to fragment shader
+                void main() {
+                    vUv = uv;
+                    // Read the height for this vertex from the heightTexture.
+                    // vUv.y ranges from 0 (bottom) to 1 (top). Our texture data (from getImageData)
+                    // has its "top" at its lower indices, so we sample 1.0 - vUv.y to flip it
+                    // vertically for correct visual orientation with the image.
+                    float pixel_height_from_texture = texture2D(heightTexture, vec2(vUv.x, 1.0 - vUv.y)).r;
+                    
+                    float final_height_for_displacement;
+                    if (u_showTopology) {
+                        final_height_for_displacement = pixel_height_from_texture;
+                    } else {
+                        // When topology is off, the plane should appear flat at minHeight + offset
+                        final_height_for_displacement = minHeight; 
+                    }
+
+                    float displacement_along_local_Z = (final_height_for_displacement + offsetFromPinTop) - maxHeight;
+
+                    // Apply displacement to the vertex's local Z coordinate (which is originally 0 for PlaneGeometry)
+                    vec4 transformedPosition = vec4(position.x, position.y, position.z + displacement_along_local_Z, 1.0);
+                    gl_Position = projectionMatrix * modelViewMatrix * transformedPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D colorTexture; 
+                uniform sampler2D heightTexture; 
+                uniform float gridSize;
+                uniform bool u_showProceduralColor; 
+                uniform float minHeight; 
+                uniform float maxHeight; 
+                varying vec2 vUv; 
+                void main() {
+                    // Invert vUv.y to match the vertical orientation with the loaded image
+                    vec2 texCoord = vec2(vUv.x, 1.0 - vUv.y); 
+                    vec4 pixelColor = texture2D(colorTexture, texCoord); // Get color from texture
+
+                    vec3 finalColor;
+
+                    if (u_showProceduralColor) {
+                        // Calculate procedural color based on height
+                        float height = texture2D(heightTexture, texCoord).r; // Get actual height from heightTexture
+                        float normalizedHeight = clamp((height - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+                        
+                        // Color transition based on normalized height: blue (low) -> green (medium) -> red (high)
+                        if (normalizedHeight < 0.5) {
+                            finalColor = mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), normalizedHeight * 2.0);
+                        } else {
+                            finalColor = mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (normalizedHeight - 0.5) * 2.0);
+                        }
+                    } else {
+                        // Use the image's RGB color
+                        finalColor = pixelColor.rgb; 
+                    }
+
+                    // Add pixelated effect and transparency:
+                    // Calculate the center of the current pixel in UV space
+                    vec2 gridCoord = floor(vUv * gridSize) / gridSize;
+                    // Calculate distance from the center of the pixel
+                    float dist = length(vUv - (gridCoord + vec2(0.5 / gridSize)));
+                    // Increased pixelSize to fill negative space
+                    float pixelSize = 0.75 / gridSize; 
+                    // Smooth transition for alpha: fully opaque at center, fades out towards edges of the dot
+                    float alpha = smoothstep(pixelSize, pixelSize * 0.5, dist); 
+
+                    gl_FragColor = vec4(finalColor, alpha); // Output the final color with transparency
+                }
+            `,
+            transparent: true // Enable transparency for the pixelated effect
+        });
+        const pixelPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+        // Position the pixel plane at a base height. Individual vertex heights are adjusted in the shader.
+        pixelPlane.position.set(0, maxHeight, 0); // Plane's base Y position
+        pixelPlane.rotation.x = -Math.PI / 2; // Orient the plane horizontally (XY plane in world coordinates)
+        scene.add(pixelPlane);
+
+        // --- Data Storage for Pin Heights and Colors ---
+        const targetHeights = new Array(count).fill(minHeight); // Desired final height for each pin
+        const animatedHeights = new Array(count).fill(minHeight); // Current animated height for each pin
+        const targetColors = new Uint8Array(count * 4); // RGBA color data for each pin
+        const dummy = new THREE.Object3D(); // Helper object for updating instanced mesh matrices efficiently
+
+        // --- Global variable to store the currently loaded image ---
+        let currentImage = null;
+
+        // --- Initialize Pins ---
+        // Set all pins to their minimum height initially
+        for (let i = 0; i < gridSize; i++) {
+            for (let j = 0; j < gridSize; j++) {
+                const index = i + j * gridSize;
+                dummy.position.set(
+                    (i - gridSize / 2) * spacing, // X position centered around origin
+                    minHeight / 2, // Y position (half of height to center base on XZ plane)
+                    (j - gridSize / 2) * spacing // Z position centered around origin
+                );
+                dummy.scale.set(1, minHeight, 1); // Scale Y to initial minimum height
+                dummy.updateMatrix(); // Update the transformation matrix for the dummy object
+                pins.setMatrixAt(index, dummy.matrix); // Apply the matrix to the specific instance
+
+                // Initialize targetColors to a default (e.g., black or transparent)
+                const colorIndex = index * 4;
+                targetColors[colorIndex] = 0; // R
+                targetColors[colorIndex + 1] = 0; // G
+                targetColors[colorIndex + 2] = 0; // B
+                targetColors[colorIndex + 3] = 0; // A (fully transparent initially)
+            }
+        }
+        pins.instanceMatrix.needsUpdate = true; // Tell Three.js to update the instanced mesh's matrices
+        colorTexture.needsUpdate = true; // Tell Three.js to update the color texture
+
+        // --- UI Elements (HTML DOM references) ---
+        const loadButton = document.getElementById('loadButton');
+        const imageInput = document.getElementById('imageUrl');
+        const loadingDiv = document.getElementById('loading');
+        const toggleTopologyCheckbox = document.getElementById('toggleTopology'); // Reference to the checkbox
+        const toggleProceduralColorCheckbox = document.getElementById('toggleProceduralColor'); // New: Reference to the procedural color checkbox
+        const fileInput = document.getElementById('fileInput'); // New: Reference to the file input
+        const heightIntensityInput = document.getElementById('heightIntensityInput'); // New: Reference to the height intensity input
+
+        // --- Initial Display ---
+        // When the page loads, compute a default abstract procedural pattern
+        computeDefaultProceduralPattern();
+        loadingDiv.style.display = 'none'; // Hide the loading message once initialized
+
+        // --- Function to handle image loading and processing (from URL or local file) ---
+        function loadImageAndProcess(imgSrc, isFile = false) {
+            loadingDiv.textContent = isFile ? 'Uploading Image...' : 'Loading Image...';
+            loadingDiv.style.display = 'block';
+
+            const img = new Image();
+            if (!isFile) {
+                img.crossOrigin = 'anonymous'; // Essential for loading images from different origins (CORS)
+            }
+            
+            img.onload = () => {
+                loadingDiv.textContent = 'Processing image...';
+                currentImage = img; // Store the loaded image globally
+                computePinHeightsAndColorsFromImage(img); // Compute heights and colors from the loaded image
+                startTime = Date.now(); // Reset animation start time for the new image
+                loadingDiv.style.display = 'none'; // Hide loading message after processing
+            };
+            img.onerror = () => {
+                // Handle image loading errors by falling back to a procedural pattern
+                displayMessage(isFile ? 'Failed to process image file.' : 'Failed to load image. Using a procedural pattern as a fallback.', 4000);
+                computeDefaultProceduralPattern(); // Fallback to procedural pattern on error
+                startTime = Date.now(); // Reset animation start time for the fallback
+                setTimeout(() => { loadingDiv.style.display = 'none'; }, 2000); // Hide loading message after a delay
+            };
+            img.src = imgSrc; // Set the image source, triggering load
+        }
+
+
+        // --- Load Button Event Listener (for URL) ---
+        loadButton.addEventListener('click', () => {
+            const imageUrl = imageInput.value.trim(); // Get the image URL from the input field
+            if (!imageUrl) {
+                displayMessage('Please enter a valid image URL.'); // Show error if URL is empty
+                return;
+            }
+            loadImageAndProcess(imageUrl, false);
+        });
+
+        // --- File Input Change Listener (for local file upload) ---
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                if (!file.type.startsWith('image/')) {
+                    displayMessage('Please select an image file (e.g., .jpg, .png, .gif).');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    loadImageAndProcess(e.target.result, true);
+                };
+                reader.onerror = () => {
+                    displayMessage('Failed to read file.', 4000);
+                    computeDefaultProceduralPattern();
+                    startTime = Date.now();
+                    setTimeout(() => { loadingDiv.style.display = 'none'; }, 2000);
+                };
+                reader.readAsDataURL(file); // Read file as data URL
+            }
+        });
+
+        // --- Toggle Topology Checkbox Event Listener ---
+        toggleTopologyCheckbox.addEventListener('change', (event) => {
+            // Update the uniform in the shader based on the checkbox's checked state
+            planeMaterial.uniforms.u_showTopology.value = event.target.checked;
+
+            // When topology is toggled, reset animatedHeights to either minHeight (if off)
+            // or the current targetHeights (if on), and reset startTime to trigger new animation.
+            if (!event.target.checked) {
+                for (let i = 0; i < count; i++) {
+                    animatedHeights[i] = minHeight; // Flatten pins instantly for a snappy toggle
+                }
+            } else {
+                // If turning topology back on, the pins will animate from their current (likely minHeight)
+                // to the targetHeights over the animationDuration, as startTime is reset.
+            }
+            startTime = Date.now(); // Reset animation timer to re-trigger the rise/flatten animation
+        });
+
+        // --- Toggle Procedural Color Checkbox Event Listener ---
+        toggleProceduralColorCheckbox.addEventListener('change', (event) => {
+            planeMaterial.uniforms.u_showProceduralColor.value = event.target.checked;
+            // Set visibility of pins based on procedural color toggle
+            pins.visible = event.target.checked;
+        });
+
+        // --- Height Intensity Input Change Listener ---
+        heightIntensityInput.addEventListener('input', (event) => {
+            heightIntensity = parseFloat(event.target.value);
+            // Recompute heights based on new intensity for the current image
+            if (currentImage) {
+                computePinHeightsAndColorsFromImage(currentImage);
+            } else {
+                // If no image is loaded, apply to the procedural pattern
+                computeDefaultProceduralPattern(); 
+            }
+            startTime = Date.now(); // This will make pins animate to new target heights
+        });
+
+
+        // --- Function to Display Temporary Messages ---
+        function displayMessage(message, duration = 3000) {
+            const messageDiv = document.createElement('div');
+            // Apply Tailwind-like classes dynamically for message styling
+            messageDiv.className = `
+                fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+                bg-gray-800 bg-opacity-70 text-white p-4 rounded-lg 
+                font-sans text-base z-[2000] opacity-0 transition-opacity duration-500 ease-in-out
+            `;
+            messageDiv.textContent = message;
+            document.body.appendChild(messageDiv);
+            setTimeout(() => { messageDiv.style.opacity = '1'; }, 10); // Fade in
+            setTimeout(() => {
+                messageDiv.style.opacity = '0'; // Fade out
+                messageDiv.addEventListener('transitionend', () => messageDiv.remove()); // Remove element after fade out
+            }, duration);
+        }
+
+        // --- Function to Compute Pin Heights and Colors from Image ---
+        function computePinHeightsAndColorsFromImage(img) {
+            const canvas = document.createElement('canvas'); // Create a temporary canvas for image processing
+            canvas.width = gridSize;
+            canvas.height = gridSize;
+            const ctx = canvas.getContext('2d');
+            
+            // Calculate aspect ratio to fit the image correctly within the square grid
+            const aspectRatio = img.width / img.height;
+            let scaledWidth, scaledHeight;
+            if (img.width > img.height) {
+                scaledWidth = gridSize;
+                scaledHeight = gridSize / aspectRatio;
+            } else {
+                scaledHeight = gridSize;
+                scaledWidth = gridSize * aspectRatio;
+            }
+            
+            // Fill the canvas with black (or any background color) before drawing the image
+            ctx.fillStyle = '#000000'; 
+            ctx.fillRect(0, 0, gridSize, gridSize);
+
+            // Calculate offsets to center the image if its aspect ratio doesn't match the square grid
+            const offsetX = (gridSize - scaledWidth) / 2;
+            const offsetY = (gridSize - scaledHeight) / 2;
+
+            // Draw the image onto the canvas, scaled and centered
+            ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+            
+            // Get pixel data from the canvas
+            const imageData = ctx.getImageData(0, 0, gridSize, gridSize);
+            const data = imageData.data; // RGBA pixel data array
+
+            // Calculate histogram of grayscale values to determine dominant background color
+            const grayscaleHistogram = new Array(256).fill(0);
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const pixelIndex = (j * gridSize + i) * 4; // Index for red channel of pixel
+                    // Calculate grayscale value (average of R, G, B channels)
+                    const grayscale = Math.round((data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3);
+                    grayscaleHistogram[grayscale]++; // Increment count for this grayscale level
+                }
+            }
+
+            // Find the most frequent grayscale value to infer background brightness
+            let dominantGrayscale = 0;
+            let maxCount = 0;
+            for (let i = 0; i < 256; i++) {
+                if (grayscaleHistogram[i] > maxCount) {
+                    maxCount = grayscaleHistogram[i];
+                    dominantGrayscale = i;
+                }
+            }
+
+            // Determine if the background is light or dark based on the dominant grayscale value
+            const isBackgroundLight = dominantGrayscale > 128; // Simple threshold (0-255 scale)
+
+            // Iterate through pixels and set target heights and colors for pins
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const index = i + j * gridSize; // Index of the current pin
+                    const pixelIndex = (j * gridSize + i) * 4; // Pixel index in image data
+                    
+                    // Normalize grayscale value to 0-1 range
+                    const grayscale = (data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3 / 255;
+                    
+                    // Apply a contrast curve to the grayscale value
+                    const contrastFactor = 1.8; // Experiment with this value (e.g., 1.5 to 2.5)
+                    const adjustedGrayscale = Math.pow(grayscale, contrastFactor);
+
+                    let normalizedHeightValue; // This will be 0-1 range, representing relative height
+                    if (isBackgroundLight) {
+                        // If background is light, lighter pixels should be minHeight, darker pixels should be maxHeight
+                        normalizedHeightValue = (1 - adjustedGrayscale); 
+                    } else {
+                        // If background is dark, darker pixels should be minHeight, lighter pixels should be maxHeight
+                        normalizedHeightValue = adjustedGrayscale;
+                    }
+
+                    // Apply height intensity to the normalized value, then map to min/max height range
+                    let height = minHeight + (normalizedHeightValue * heightIntensity) * (maxHeight - minHeight);
+
+                    // Ensure the final height does not exceed maxHeight or go below minHeight.
+                    height = Math.max(minHeight, Math.min(maxHeight, height));
+                    targetHeights[index] = height; // Store the desired height for this pin
+
+                    // Store color data for the colorTexture
+                    const colorTargetIndex = index * 4;
+                    targetColors[colorTargetIndex] = data[pixelIndex];     // Red
+                    targetColors[colorTargetIndex + 1] = data[pixelIndex + 1]; // Green
+                    targetColors[colorTargetIndex + 2] = data[pixelIndex + 2]; // Blue
+                    targetColors[colorTargetIndex + 3] = data[pixelIndex + 3]; // Alpha (from original image)
+                }
+            }
+            colorTexture.needsUpdate = true; // Indicate that color data has been updated
+        }
+
+        // --- Function to Generate a Default Abstract Procedural Pattern ---
+        // This function creates a smooth, undulating wave-like pattern if no image is loaded or if loading fails.
+        function computeDefaultProceduralPattern() {
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const index = i + j * gridSize;
+                    // Normalize grid coordinates to a -1 to 1 range, centered at (0,0)
+                    const x = (i / (gridSize - 1) - 0.5) * 2;
+                    const y = (j / (gridSize - 1) - 0.5) * 2;
+                    
+                    // Create a subtle, undulating wave pattern using sine and cosine functions
+                    let normalizedHeightValue = 0.5 + Math.sin(x * Math.PI * 2 + y * Math.PI * 3) * 0.3 + // Primary wave component
+                                         Math.cos(x * Math.PI * 4 - y * Math.PI * 2) * 0.2; // Secondary wave component
+                    
+                    // Apply a gentle falloff effect from the center outwards
+                    const radialDistance = Math.sqrt(x * x + y * y); // Distance from the center (0,0)
+                    normalizedHeightValue *= (1 - radialDistance * 0.5); // Reduce height towards the edges of the grid
+                    
+                    // Further smooth and scale the height with a non-linear adjustment (power function)
+                    normalizedHeightValue = Math.pow(Math.max(0, normalizedHeightValue), 1.5); // Creates smoother hills and valleys
+                    
+                    // Apply height intensity to the normalized value, then map to min/max height range
+                    let height = minHeight + (normalizedHeightValue * heightIntensity) * (maxHeight - minHeight);
+                    
+                    // Ensure the height is strictly clamped within the bounds
+                    height = Math.max(minHeight, Math.min(maxHeight, height)); 
+                    targetHeights[index] = height; // Store the computed procedural height
+
+                    // Set default colors for procedural pattern (e.g., a gradient based on height or a fixed color)
+                    const colorTargetIndex = index * 4;
+                    // For the initial procedural pattern, we store a dummy opaque black color in targetColors.
+                    // The actual procedural color rendering is handled in the shader based on 'u_showProceduralColor'.
+                    targetColors[colorTargetIndex] = 0;     // R
+                    targetColors[colorTargetIndex + 1] = 0; // G
+                    targetColors[colorTargetIndex + 2] = 0; // B
+                    targetColors[colorTargetIndex + 3] = 255; // A (fully opaque)
+                }
+            }
+            colorTexture.needsUpdate = true; // Indicate that color data has been updated
+        }
+
+        // --- Interaction Variables ---
+        let mouse = new THREE.Vector2(); // Stores normalized mouse coordinates (-1 to +1)
+        let raycaster = new THREE.Raycaster(); // Used for detecting intersections with 3D objects
+
+        // --- Mouse Movement Event Listener ---
+        // Updates mouse coordinates for raycasting when the mouse moves over the window
+        window.addEventListener('mousemove', (event) => {
+            // Convert pixel coordinates to normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // --- Animation Loop ---
+        let startTime = Date.now(); // Tracks the start time for initial animation progression
+        function animate() {
+            requestAnimationFrame(animate); // Request the next frame for continuous animation
+
+            controls.update(); // Update orbit controls (camera movement)
+
+            const elapsed = (Date.now() - startTime) / 1000; // Time elapsed since last image/procedural load
+            // Calculate initial rise animation progress (0 to 1)
+            const initialRiseFrac = Math.min(1, elapsed / animationDuration); 
+
+            raycaster.setFromCamera(mouse, camera); // Update raycaster with current mouse and camera position
+            const intersects = raycaster.intersectObject(pins); // Find pins intersected by the ray
+            const hoveredInstance = intersects.length > 0 ? intersects[0] : null; // Get the closest intersected pin
+
+            // Array to store the instantaneous desired height for each pin, combining base and hover effects
+            const instantaneousDesiredTargets = new Array(count);
+
+            // Get the current state of the topology toggle
+            const showTopology = planeMaterial.uniforms.u_showTopology.value;
+
+            // Calculate instantaneous desired heights for all pins
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const index = i + j * gridSize;
+                    
+                    let baseSculptedHeight;
+                    if (showTopology) {
+                        // When topology is on, pins follow the target height
+                        baseSculptedHeight = minHeight + (targetHeights[index] - minHeight) * initialRiseFrac;
+                    } else {
+                        // When topology is off, pins flatten to minHeight
+                        baseSculptedHeight = minHeight; 
+                    }
+                    baseSculptedHeight = Math.max(minHeight, baseSculptedHeight); // Ensure minimum height
+                    instantaneousDesiredTargets[index] = baseSculptedHeight; // Set base target height
+
+                    // Apply hover effect if a pin is being hovered over (applies regardless of topology mode)
+                    if (hoveredInstance) {
+                        const intersectedInstanceId = hoveredInstance.instanceId; // ID of the hovered pin
+                        const centerX = intersectedInstanceId % gridSize; // X-coordinate of hovered pin in grid
+                        const centerZ = Math.floor(intersectedInstanceId / gridSize); // Z-coordinate of hovered pin in grid
+                        
+                        // Calculate squared distance from the currently processed pin to the hovered pin
+                        const distSq = (i - centerX) * (i - centerX) + (j - centerZ) * (j - centerZ);
+                        const radiusSq = hoverRadiusGridUnits * hoverRadiusGridUnits; // Squared radius of hover effect
+                        
+                        if (distSq < radiusSq) { // If the current pin is within the hover radius
+                            const normalizedDist = Math.sqrt(distSq) / hoverRadiusGridUnits; // Distance normalized 0-1
+                            const influence = 1 - normalizedDist; // Influence decreases as distance increases
+                            // Increase height based on influence, adding to the base sculpted height
+                            instantaneousDesiredTargets[index] += hoverPeakHeightIncrease * influence;
+                        }
+                    }
+                }
+            }
+
+            // Update Pins and Height/Color Textures
+            const heightTexData = heightTexture.image.data; // Reference to the height texture's data array
+            const colorTexData = colorTexture.image.data; // Reference to the color texture's data array
+
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const index = i + j * gridSize;
+                    // Smoothly interpolate current pin height towards its instantaneous desired target height
+                    animatedHeights[index] = THREE.MathUtils.lerp(
+                        animatedHeights[index],
+                        instantaneousDesiredTargets[index],
+                        lerpFactor
+                    );
+                    const currentHeight = animatedHeights[index];
+                    
+                    // Update the pin's position and scale based on its current animated height
+                    dummy.position.set(
+                        (i - gridSize / 2) * spacing, // X position
+                        currentHeight / 2, // Y position (half of height to center base on XZ plane)
+                        (j - gridSize / 2) * spacing // Z position
+                    );
+                    dummy.scale.set(1, currentHeight, 1); // Scale cylinder along Y-axis to desired height
+                    dummy.updateMatrix(); // Update dummy's transformation matrix
+                    pins.setMatrixAt(index, dummy.matrix); // Apply the updated matrix to the pin instance
+                    
+                    // Update the height texture data for the pixel plane.
+                    // The texture is row-major (j determines row, i determines column).
+                    heightTexData[j * gridSize + i] = currentHeight;
+
+                    // Update the color texture data for the pixel plane.
+                    // Note: targetColors *always* stores the original image's color.
+                    // The procedural color is generated in the shader based on u_showProceduralColor.
+                    const colorSourceIndex = index * 4;
+                    const colorTargetIndex = (j * gridSize + i) * 4; // Texture is row-major
+
+                    colorTexData[colorTargetIndex] = targetColors[colorSourceIndex];     // R
+                    colorTexData[colorTargetIndex + 1] = targetColors[colorSourceIndex + 1]; // G
+                    colorTexData[colorTargetIndex + 2] = targetColors[colorSourceIndex + 2]; // B
+                    colorTexData[colorTargetIndex + 3] = targetColors[colorSourceIndex + 3]; // A
+                }
+            }
+            pins.instanceMatrix.needsUpdate = true; // Tell Three.js that the instanced mesh matrices need updating
+            heightTexture.needsUpdate = true; // Tell Three.js that the height texture needs updating
+            colorTexture.needsUpdate = true; // Tell Three.js that the color texture needs updating
+
+            renderer.render(scene, camera); // Render the entire scene
+        }
+        window.onload = animate; // Start the animation loop when the window finishes loading
+
+        // --- Handle Window Resizing ---
+        // Adjusts camera aspect ratio and renderer size when the window is resized
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; // Update camera aspect ratio
+            camera.updateProjectionMatrix(); // Recalculate projection matrix
+            renderer.setSize(window.innerWidth, window.innerHeight); // Update renderer size
+        });
+    </script>
+</body>
+</html>

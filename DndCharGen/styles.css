@@ -1,0 +1,331 @@
+body {
+    font-family: 'Segoe UI Emoji', Arial, sans-serif;
+    font-size: 18px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 10px;
+    background-color: #121212;
+    color: #ffffff;
+    min-height: 100vh;
+    margin: 0;
+}
+
+#container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+#sheet {
+    border: 1px solid #333333;
+    padding: 20px;
+    width: 100%;
+    max-width: 1400px;
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+#character-info {
+    grid-column: 1 / -1;
+    grid-row: 1 / 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+#basic-info {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+}
+
+#sprite-container {
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+#random {
+    background-color: #333333;
+    color: #ffffff;
+    border: 1px solid #555555;
+    padding: 12px 24px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 18px;
+    transition: background-color 0.2s;
+    margin-top: 10px;
+    width: auto;
+}
+
+#random:hover {
+    background-color: #444444;
+}
+
+#sprite {
+    border: 1px solid #333333;
+    border-radius: 8px;
+    width: 550px;
+    height: 200px;
+    position: relative;
+    overflow: hidden;
+}
+
+#sprite iframe {
+    position: absolute;
+    top: -15px;
+    left: -1666px;
+    width: 1920px;
+    height: 1080px;
+    border: none;
+    scrolling: no;
+    transform-origin: top left;
+    transform:scale(2.1);
+    
+}
+
+#abilities-saves {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    display: flex;
+    gap: 15px;
+}
+
+#abilities, #saves {
+    flex: 1;
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+#skills {
+    grid-column: 1 / 2; /* Skills will now span full width in its row */
+    grid-row: 3 / 4;
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+    position: relative;
+    gap: 5px;
+}
+
+#skills ul {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    max-height: 200px; /* Adjust this value to control how many rows you have */
+}
+
+#skills ul li {
+    width: 33%; /* Creates three columns */
+    box-sizing: border-box;
+}
+#proficiency-note {
+    position: absolute;
+    bottom: 5px;
+    right: 10px;
+    font-size: 0.8em;
+    color: #cccccc;
+}
+#spells-features {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    display: grid; /* Changed to grid for better control over inner elements */
+    grid-template-columns: 1fr 1fr; /* Two columns for spells and features */
+    gap: 15px;
+}
+
+#spells {
+    grid-column: 1 / 2; /* Spells takes the first column */
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+#features {
+    grid-column: 2 / 3; /* Features takes the second column */
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+#spell-slots-container { /* New container for spell slots */
+    display: flex;
+    flex-wrap: wrap; /* Allows spell slots to wrap */
+    gap: 5px;
+    margin-top: 10px;
+}
+
+#spell-slots-container p {
+    margin: 0;
+    padding: 2px 5px;
+    background-color: #333333;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+#inventory-feats { /* New container for inventory and feats */
+    grid-column: 2 / 3;
+    grid-row: 3 / 5; /* Spans multiple rows to accommodate content */
+    display: grid;
+    grid-template-columns: 1fr; /* Single column for now, will adjust for side-by-side */
+    gap: 15px;
+}
+
+#inventory {
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+    min-width: 150px; /* Shrink inventory */
+}
+
+#feats {
+    background-color: #252525;
+    padding: 10px;
+    border-radius: 4px;
+    min-width: 150px; /* Shrink feats */
+}
+
+
+#credits {
+    grid-column: 1 / -1;
+    grid-row: 5 / 6;
+    font-size: 0.9em;
+    color: #aaaaaa;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+li {
+    margin-bottom: 5px;
+    font-size: 0.95em;
+}
+.proficient {
+    font-size: 1em; /* Adjusted to be the same size as other text */
+    color: #ffffff; /* Keep original color */
+    font-weight: bold; /* Make it bold to distinguish */
+}
+h2 {
+    margin: 0 0 10px 0;
+    font-size: 1.75em;
+}
+
+p, strong {
+    margin: 5px 0;
+}
+
+@media (max-width: 768px) {
+    #sheet {
+        grid-template-columns: 1fr;
+    }
+    #sprite-container {
+        grid-column: 1 / -1;
+        grid-row: 2 / 3;
+    }
+    #sprite {
+        width: 120px;
+        height: 40px;
+    }
+    #sprite iframe {
+        left: -312px;
+    }
+    #character-info {
+        grid-column: 1 / -1;
+        grid-row: 1 / 2;
+        grid-template-columns: 1fr;
+    }
+    #basic-info {
+        grid-column: 1 / -1;
+        grid-row: 1 / 2;
+    }
+    #abilities-saves {
+        grid-column: 1 / -1;
+        grid-row: 3 / 4;
+        flex-direction: column;
+    }
+    #spells-features {
+        grid-column: 1 / -1;
+        grid-row: 4 / 5;
+        flex-direction: column; /* Revert to column for mobile */
+    }
+    #skills {
+        grid-column: 1 / -1;
+        grid-row: 5 / 6;
+        grid-template-columns: repeat(2,1fr); /* Two columns for mobile skills */
+        gap: 5px;
+    }
+    .skill-column {
+    flex: 1; /* Allows columns to take equal width */
+    padding: 0 10px; /* Adds some spacing between columns */
+}
+
+.skill-column ul {
+    list-style: none; /* Remove bullet points */
+    padding: 0;
+    margin: 0;
+}
+
+.skill-column li {
+    margin-bottom: 5px; /* Spacing between skill items */
+}
+    #inventory-feats {
+        grid-column: 1 / -1;
+        grid-row: 6 / 7;
+        grid-template-columns: 1fr; /* Stack inventory and feats on mobile */
+    }
+    #credits {
+        grid-column: 1 / -1;
+        grid-row: 7 / 8;
+    }
+}
+
+/* Adjustments for larger screens for inventory and feats side-by-side */
+@media (min-width: 769px) {
+    #inventory-feats {
+        grid-template-columns: 1fr 1fr; /* Side-by-side on larger screens */
+    }
+    #inventory {
+        grid-column: 1 / 2;
+    }
+    #feats {
+        grid-column: 2 / 3;
+    }
+    
+}
+.tooltip {
+    position: absolute;
+    background-color: #333;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 1000;
+    display: none;
+    max-width: 300px;
+    white-space: pre-wrap;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+.tooltip.visible {
+    display: block;
+}

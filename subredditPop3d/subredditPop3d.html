@@ -1,0 +1,1773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Subreddit Bubble Map with Seamless Cluster Expansion</title>
+    <link rel="stylesheet" href="./output.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #e6edf3;
+            cursor: grab;
+        }
+        body.grabbing {
+            cursor: grabbing;
+        }
+        #info-box {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+            z-index: 10;
+        }
+        #legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            z-index: 10;
+            max-height: 50%;
+            overflow-y: auto;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex flex-col items-center justify-center min-h-screen">
+    <div id="info-box" class="rounded-lg shadow-lg"></div>
+    <div id="legend" class="rounded-lg shadow-lg">
+        <h3 class="font-bold mb-2">Interest Groups</h3>
+    </div>
+
+    <script>
+        console.log("Script loaded successfully.");
+        let scene, camera, renderer;
+        let spheres = [];
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let INTERSECTED = null;
+        let hoveredObject = null;
+        let hoverTimeoutId = null;
+        const hoverDelay = 500;
+        let state = 'initialScattering';
+        let centralBall = null;
+        let categoryRepresentations = [];
+        let currentZoomedCategoryName = null;
+        let spreadStartTime = null;
+        let awayFromCategoryStartTime = null;
+        let largestRadiusInCategory = 0;
+        let expansionStartTime = null;
+        let collapseComplete = true;
+        let collapsingCategory = null;
+        const infoBox = document.getElementById('info-box');
+        const legendDiv = document.getElementById('legend');
+        let world;
+        const timeStep = 1 / 60;
+        let keysPressed = {};
+        let isMouseLookActive = false;
+        const moveSpeed = 5;
+        const lookSpeed = 0.002;
+        const initialCameraZ = 800;
+        let targetCameraPosition = new THREE.Vector3();
+        let cameraLerpFactor = 0.05;
+        let isCameraTransitioning = false;
+        const interBubbleRepulsion = 1e-2;
+        const attractionStrength = 1e-4;
+        const centralAttractionStrength = 2;
+        const categoryClumpTargetAttractionStrength = 5;
+        const subredditTargetAttractionStrength = 5;
+
+        const fullSubredditData = [
+            { name: "r/funny", population: 50200000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/askreddit", population: 43200000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/aww", population: 33800000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/pics", population: 33000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/science", population: 31000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/gaming", population: 38700000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/movies", population: 29800000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/news", population: 26000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/todayilearned", population: 29000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/food", population: 25000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/gifs", population: 24500000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/earthporn", population: 23000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/music", population: 22000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/videos", population: 21500000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/art", population: 19000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/programming", population: 18000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/travel", population: 17000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/sports", population: 16500000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/personalfinance", population: 16000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/memes", population: 15500000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/wholesomememes", population: 14000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/dataisbeautiful", population: 13000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/technology", population: 12500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/anime", population: 11000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/fitness", population: 10500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/books", population: 9500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/DIY", population: 8000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/investing", population: 7500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/learnprogramming", population: 7000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/formula1", population: 6000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/wallstreetbets", population: 14000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/cryptocurrency", population: 6000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/truecrime", population: 4500000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/worldnews", population: 30000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/politics", population: 20000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/keto", population: 3000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/cooking", population: 6000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/photography", population: 7000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/writingprompts", population: 16000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/gardening", population: 5000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/nfl", population: 5000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/nba", population: 5500000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/soccer", population: 6000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/malefashionadvice", population: 2500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/femalefashionadvice", population: 1800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/casualconversation", population: 2000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/explainlikeimfive", population: 24000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/askscience", population: 20000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/space", population: 10000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/history", population: 8000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/personalfinancecanada", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/stocks", population: 3000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/cats", population: 2000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/dogs", population: 1800000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/mademesmile", population: 10000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/unexpected", population: 8000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/jokes", population: 6000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/Showerthoughts", population: 25000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/pokemon", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/minecraft", population: 7000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/leagueoflegends", population: 5000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }
+            
+
+
+  ,{ name: "r/pcmasterrace", population: 6500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/buildapc", population: 3000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/hardware", population: 2800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/cybersecurity", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/webdev", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/MachineLearning", population: 3000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/ArtificialInteligence", population: 2500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/compsci", population: 1800000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/Physics", population: 4000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/Chemistry", population: 2200000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/biology", population: 2500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/ecology", population: 700000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/environment", population: 1800000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/climate", population: 1000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/worldbuilding", population: 1500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/fantasy", population: 2000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/scifi", population: 2000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/booksuggestions", population: 1000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/TrueFilm", population: 1200000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/television", population: 2800000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/Netflix", population: 2000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/Disneyplus", population: 1000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/photography", population: 7000000, interestGroup: "Visual Content", groupColor: 0xED8936 }, // Moved for color consistency
+            { name: "r/photoshopbattles", population: 1800000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/perfectloops", population: 1500000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/mildlyinteresting", population: 28000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/nottheonion", population: 17000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/facepalm", population: 12000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/CrappyDesign", population: 2500000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/MadeMeSmile", population: 10000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // Moved for color consistency
+            { name: "r/eyebleach", population: 5000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/upliftingnews", population: 3000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/goodnews", population: 1000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/Showerthoughts", population: 25000000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // Moved for color consistency
+            { name: "r/philosophy", population: 2500000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/TrueReddit", population: 1000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/conspiracy", population: 1200000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/AskHistorians", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/MapPorn", population: 2000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/streetphotography", population: 1000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/architecture", population: 1000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/Futurology", population: 8000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/changemyview", population: 1500000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/AmItheAsshole", population: 7000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/relationships", population: 4000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/legaladvice", population: 3000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/productivity", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/minimalism", population: 1200000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/personalfinanceuk", population: 800000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/stockmarket", population: 1000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/CryptoMarkets", population: 900000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/selfimprovement", population: 1800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/loseit", population: 4000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/running", population: 1500000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/bodybuilding", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/weightlifting", population: 1000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/cookingforbeginners", population: 1200000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/baking", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/cocktails", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/wine", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/beer", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/boardgames", population: 1800000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/tabletop", population: 900000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/MagicTheGathering", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/DnD", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/bookshelf", population: 500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/writing", population: 1000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/learnart", population: 800000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/drawing", population: 1500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/painting", population: 1000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/Design", population: 1200000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/InteriorDesign", population: 900000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/HomeImprovement", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/woodworking", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/crafts", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/sewing", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/knitting", population: 400000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/crochet", population: 350000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/outdoors", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/hiking", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/camping", population: 700000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/backpacking", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Fishing", population: 600000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/hunting", population: 400000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/golf", population: 700000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/tennis", population: 600000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/baseball", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/hockey", population: 1800000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/MMA", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/boxing", population: 1000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/CFB", population: 1500000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/fantasyfootball", population: 3000000, interestGroup: "Sports", groupColor: 0x319795 },
+            { name: "r/relationships", population: 4000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/TrueCrime", population: 4500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/UFOs", population: 1500000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/conspiracytheories", population: 800000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/unpopularopinion", population: 4000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/changemyview", population: 1500000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // consolidated
+            { name: "r/Showerthoughts", population: 25000000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // consolidated
+            { name: "r/AskReddit", population: 43200000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // consolidated
+            { name: "r/movies", population: 29800000, interestGroup: "Entertainment", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/television", population: 2800000, interestGroup: "Entertainment", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/Music", population: 22000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/anime", population: 11000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/standupcomedy", population: 800000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/ComedyCemetery", population: 1000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/ProgrammerHumor", population: 3000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/dadjokes", population: 2500000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/mildlyinfuriating", population: 15000000, interestGroup: "General Discussion", groupColor: 0xED8936 },
+            { name: "r/nextfuckinglevel", population: 20000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/Damnthatsinteresting", population: 22000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/blackmagicfuckery", population: 5000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/natureismetal", population: 3000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/oddlysatisfying", population: 18000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 },
+            { name: "r/foodporn", population: 4000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/cookingvideos", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/travelporn", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/solotravel", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/backpacking", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/CampingandHiking", population: 1200000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/cars", population: 6000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/motorcycles", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/bicycling", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/running", population: 1500000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/Fitness", population: 10500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/WeightLoss", population: 2500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/keto", population: 3000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/vegetarian", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/vegan", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Bonsai", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/HomeDecor", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/malefashion", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/femalefashion", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/streetwear", population: 3000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Sneakers", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Watches", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Coffee", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/tea", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/trees", population: 8000000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // Example for a general, large community
+            { name: "r/AskHistorians", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // consolidated
+            { name: "r/books", population: 9500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/Art", population: 19000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 }, // consolidated
+            { name: "r/comics", population: 1500000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/manga", population: 2000000, interestGroup: "Culture & Creativity", groupColor: 0x81E6D9 },
+            { name: "r/criterion", population: 300000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/Documentaries", population: 2000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/listentothis", population: 10000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/IndieMusic", population: 500000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/metal", population: 1000000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/EDM", population: 800000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/Jazz", population: 600000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/classicalmusic", population: 700000, interestGroup: "Entertainment", groupColor: 0x81E6D9 },
+            { name: "r/programming", population: 18000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // consolidated
+            { name: "r/Python", population: 5000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/javascript", population: 4000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/java", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/cpp", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/datascience", population: 2500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/learnpython", population: 7000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // consolidated
+            { name: "r/linux", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/androiddev", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/iosdev", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/reactjs", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/vuejs", population: 400000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/angular", population: 300000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/web_design", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/gamedev", population: 700000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/indiegames", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Steam", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/NintendoSwitch", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/PS5", population: 2500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Xbox", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/pcgaming", population: 5000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Valorant", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/DotA2", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/GlobalOffensive", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/FortNiteBR", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/PUBATTLEGROUNDS", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/apexlegends", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Minecraftbuilds", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/factorio", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/KerbalSpaceProgram", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/CitiesSkylines", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/StardewValley", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/boardgames", population: 1800000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/learnmath", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/askhistorians", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/linguistics", population: 500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/psychology", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/sociology", population: 800000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/Economics", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/astronomy", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/biotech", population: 400000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/neuroscience", population: 600000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/medical", population: 1000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/health", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/nutrition", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/bodyweightfitness", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/yoga", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/meditation", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/declutter", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/ZeroWaste", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/sustainability", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/homestead", population: 700000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/preppers", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/frugal", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/financialindependence", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/options", population: 1000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/dividends", population: 800000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/RealEstate", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/taxes", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/Bitcoin", population: 6000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/ethereum", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/dogecoin", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/litecoin", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/monero", population: 300000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/News", population: 26000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/worldnews", population: 30000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/politics", population: 20000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/Coronavirus", population: 4000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/UkrainianConflict", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/RussiaUkraineWar2022", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/War", population: 600000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/breakingnews", population: 1500000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/localnews", population: 200000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/UpliftingNews", population: 3000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/goodnews", population: 1000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/wholesomememes", population: 14000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/cats", population: 2000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/dogs", population: 1800000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/eyebleach", population: 5000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/mademesmile", population: 10000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/unexpected", population: 8000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 }, // consolidated
+            { name: "r/jokes", population: 6000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 }, // consolidated
+            { name: "r/Showerthoughts", population: 25000000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // consolidated
+            { name: "r/pokemon", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/minecraft", population: 7000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/leagueoflegends", population: 5000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/nfl", population: 5000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/nba", population: 5500000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/soccer", population: 6000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/baseball", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/hockey", population: 1800000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/MMA", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/boxing", population: 1000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/CFB", population: 1500000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/fantasyfootball", population: 3000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/tennis", population: 600000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/golf", population: 700000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/Fishing", population: 600000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/hunting", population: 400000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/cars", population: 6000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/motorcycles", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/bicycling", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/homeautomation", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/smarthome", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/privacy", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/security", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/networking", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/sysadmin", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/devops", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/webdev", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/programminghorror", population: 1000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/softwaregore", population: 1000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/hardwaregore", population: 500000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/techsupportgore", population: 300000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/buildapcsales", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/buildapcforme", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/ultrawidemasterrace", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/MechanicalKeyboards", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Battlestations", population: 2000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/setups", population: 1000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/GamingLaptops", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/MinecraftDungeons", population: 200000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Terraria", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/factorio", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/CitiesSkylines", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/RimWorld", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/CrusaderKings", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/eu4", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/stellaris", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/hoi4", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/totalwar", population: 600000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Warhammer40k", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/DestinyTheGame", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Overwatch", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/RocketLeague", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/FIFA", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/CoDCompetitive", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/GlobalOffensiveTrade", population: 200000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/apexlegends", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Minecraftbuilds", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/KerbalSpaceProgram", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/StardewValley", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/learnmath", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/linguistics", population: 500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/psychology", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/sociology", population: 800000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/Economics", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/astronomy", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/biotech", population: 400000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/neuroscience", population: 600000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/medical", population: 1000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/health", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/nutrition", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/bodyweightfitness", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/yoga", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/meditation", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/declutter", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/ZeroWaste", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/sustainability", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/homestead", population: 700000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/preppers", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/frugal", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/financialindependence", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/options", population: 1000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/dividends", population: 800000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/RealEstate", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/taxes", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/Bitcoin", population: 6000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/ethereum", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/dogecoin", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/litecoin", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/monero", population: 300000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/News", population: 26000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/worldnews", population: 30000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/politics", population: 20000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // consolidated
+            { name: "r/Coronavirus", population: 4000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/UkrainianConflict", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/RussiaUkraineWar2022", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/War", population: 600000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/breakingnews", population: 1500000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/localnews", population: 200000, interestGroup: "News & Current Events", groupColor: 0xF56565 },
+            { name: "r/UpliftingNews", population: 3000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/goodnews", population: 1000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/wholesomememes", population: 14000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/cats", population: 2000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/dogs", population: 1800000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/eyebleach", population: 5000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/mademesmile", population: 10000000, interestGroup: "Feel-Good Content", groupColor: 0xFC8181 }, // consolidated
+            { name: "r/unexpected", population: 8000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 }, // consolidated
+            { name: "r/jokes", population: 6000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 }, // consolidated
+            { name: "r/Showerthoughts", population: 25000000, interestGroup: "General Discussion", groupColor: 0xED8936 }, // consolidated
+            { name: "r/pokemon", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/minecraft", population: 7000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/leagueoflegends", population: 5000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/nfl", population: 5000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/nba", population: 5500000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/soccer", population: 6000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/baseball", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/hockey", population: 1800000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/MMA", population: 2000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/boxing", population: 1000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/CFB", population: 1500000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/fantasyfootball", population: 3000000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/tennis", population: 600000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/golf", population: 700000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/Fishing", population: 600000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/hunting", population: 400000, interestGroup: "Sports", groupColor: 0x319795 }, // consolidated
+            { name: "r/cars", population: 6000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/motorcycles", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/bicycling", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // consolidated
+            { name: "r/homeautomation", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/smarthome", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/privacy", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/security", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/networking", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/sysadmin", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/devops", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/webdev", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/programminghorror", population: 1000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/softwaregore", population: 1000000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/hardwaregore", population: 500000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/techsupportgore", population: 300000, interestGroup: "Humor & Entertainment", groupColor: 0xED8936 },
+            { name: "r/buildapcsales", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/buildapcforme", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/ultrawidemasterrace", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 },
+            { name: "r/MechanicalKeyboards", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/Battlestations", population: 2000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/setups", population: 1000000, interestGroup: "Visual Content", groupColor: 0xED8936 },
+            { name: "r/GamingLaptops", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/MinecraftDungeons", population: 200000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Terraria", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/factorio", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/CitiesSkylines", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // consolidated
+            { name: "r/RimWorld", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/CrusaderKings", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/eu4", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/stellaris", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/hoi4", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/totalwar", population: 600000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Warhammer40k", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/DestinyTheGame", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Overwatch", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/RocketLeague", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/FIFA", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/CoDCompetitive", population: 300000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/GlobalOffensiveTrade", population: 200000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/apexlegends", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/Minecraftbuilds", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/KerbalSpaceProgram", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/StardewValley", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA },
+            { name: "r/learnmath", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/linguistics", population: 500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/psychology", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/sociology", population: 800000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/Economics", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/astronomy", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/biotech", population: 400000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/neuroscience", population: 600000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/medical", population: 1000000, interestGroup: "Science & Learning", groupColor: 0x68D391 },
+            { name: "r/health", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/nutrition", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/bodyweightfitness", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/yoga", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/meditation", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/declutter", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/ZeroWaste", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/sustainability", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/homestead", population: 700000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/preppers", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B },
+            { name: "r/frugal", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/financialindependence", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/options", population: 1000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/dividends", population: 800000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/RealEstate", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/taxes", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 },
+            { name: "r/askcarsales", population: 200000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // New
+            { name: "r/AskCulinary", population: 300000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // New
+            { name: "r/personalfinancecanada", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // New
+            { name: "r/europe", population: 5000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/asia", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/africa", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/americas", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/australia", population: 700000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/newzealand", population: 200000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/canada", population: 1800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/unitedkingdom", population: 2000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/de", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New (Germany)
+            { name: "r/fr", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New (France)
+            { name: "r/spain", population: 400000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New (Spain)
+            { name: "r/italy", population: 300000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New (Italy)
+            { name: "r/india", population: 2500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/china", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/japan", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/korea", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/brazil", population: 1200000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/mexico", population: 600000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/ireland", population: 400000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/scotland", population: 300000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/wales", population: 100000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/northernireland", population: 50000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // New
+            { name: "r/AskElectronics", population: 200000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/Arduino", population: 600000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/raspberrypi", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/HomeNetworking", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/selfhosted", population: 700000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/privacytoolsIO", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/linuxmasterrace", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/unixporn", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/vscode", population: 300000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/sublime", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/vim", population: 400000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/emacs", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/webflow", population: 150000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/Wordpress", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/Squarespace", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/Shopify", population: 200000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/ecommerce", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // New
+            { name: "r/sysadmin", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/devops", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/learnpython", population: 7000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/Python", population: 5000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/javascript", population: 4000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/java", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/cpp", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/datascience", population: 2500000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/linux", population: 2000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/androiddev", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/iosdev", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/reactjs", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/vuejs", population: 400000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/angular", population: 300000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/web_design", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/gamedev", population: 700000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/indiegames", population: 500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/Steam", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/NintendoSwitch", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/PS5", population: 2500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/Xbox", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/pcgaming", population: 5000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/Valorant", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/DotA2", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/GlobalOffensive", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/FortNiteBR", population: 3000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/PUBATTLEGROUNDS", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/apexlegends", population: 2000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/Minecraftbuilds", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/KerbalSpaceProgram", population: 400000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/CitiesSkylines", population: 1000000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/StardewValley", population: 1500000, interestGroup: "Gaming", groupColor: 0x9F7AEA }, // Consolidated
+            { name: "r/learnmath", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/linguistics", population: 500000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/psychology", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/sociology", population: 800000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/Economics", population: 1500000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/astronomy", population: 2000000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/biotech", population: 400000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/neuroscience", population: 600000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/medical", population: 1000000, interestGroup: "Science & Learning", groupColor: 0x68D391 }, // Consolidated
+            { name: "r/health", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/nutrition", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/bodyweightfitness", population: 2000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/yoga", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/meditation", population: 1500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/declutter", population: 600000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/ZeroWaste", population: 1000000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/sustainability", population: 800000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/homestead", population: 700000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/preppers", population: 500000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/frugal", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/financialindependence", population: 2000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/options", population: 1000000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/dividends", population: 800000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/RealEstate", population: 1500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/taxes", population: 500000, interestGroup: "Finance & Advice", groupColor: 0xA0AEC0 }, // Consolidated
+            { name: "r/askcarsales", population: 200000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/AskCulinary", population: 300000, interestGroup: "Lifestyle & Hobbies", groupColor: 0xECC94B }, // Consolidated
+            { name: "r/europe", population: 5000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/asia", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/africa", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/americas", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/australia", population: 700000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/newzealand", population: 200000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/canada", population: 1800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/unitedkingdom", population: 2000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/de", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated (Germany)
+            { name: "r/fr", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated (France)
+            { name: "r/spain", population: 400000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated (Spain)
+            { name: "r/italy", population: 300000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated (Italy)
+            { name: "r/india", population: 2500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/china", population: 1000000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/japan", population: 800000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/korea", population: 500000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/brazil", population: 1200000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/mexico", population: 600000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/ireland", population: 400000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/scotland", population: 300000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/wales", population: 100000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/northernireland", population: 50000, interestGroup: "News & Current Events", groupColor: 0xF56565 }, // Consolidated
+            { name: "r/AskElectronics", population: 200000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/Arduino", population: 600000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/raspberrypi", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/HomeNetworking", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/selfhosted", population: 700000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/privacytoolsIO", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/linuxmasterrace", population: 1500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/unixporn", population: 1000000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/vscode", population: 300000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/sublime", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/vim", population: 400000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/emacs", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/webflow", population: 150000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/Wordpress", population: 800000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/Squarespace", population: 100000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/Shopify", population: 200000, interestGroup: "Tech & Development", groupColor: 0x4299E1 }, // Consolidated
+            { name: "r/ecommerce", population: 500000, interestGroup: "Tech & Development", groupColor: 0x4299E1 } // Consolidated
+        ];
+
+        const groupPositions = {
+            "Humor & Entertainment": new THREE.Vector3(-300, 150, 0),
+            "General Discussion": new THREE.Vector3(0, 0, 300),
+            "Feel-Good Content": new THREE.Vector3(150, -300, -150),
+            "Visual Content": new THREE.Vector3(-150, 0, -300),
+            "Science & Learning": new THREE.Vector3(300, -150, 0),
+            "Gaming": new THREE.Vector3(0, 300, -150),
+            "Entertainment": new THREE.Vector3(-300, -300, 300),
+            "News & Current Events": new THREE.Vector3(300, 300, -300),
+            "Lifestyle & Hobbies": new THREE.Vector3(-250, 250, 250),
+            "Culture & Creativity": new THREE.Vector3(250, -250, -250),
+            "Tech & Development": new THREE.Vector3(-100, 100, 100),
+            "Sports": new THREE.Vector3(100, -100, -100),
+            "Finance & Advice": new THREE.Vector3(-350, -100, 150),
+        };
+
+        function createTextSprite(text) {
+            try {
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('Canvas context not supported');
+                const fontSize = 32;
+                context.font = `${fontSize}px Arial`;
+                const textWidth = context.measureText(text).width;
+                canvas.width = textWidth + 20;
+                canvas.height = fontSize + 20;
+                context.font = `${fontSize}px Arial`;
+                context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = 'white';
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText(text, canvas.width / 2, canvas.height / 2);
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({
+                    map: texture,
+                    transparent: true
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(canvas.width / 10, canvas.height / 10, 1);
+                return sprite;
+            } catch (e) {
+                console.error('Error creating text sprite:', e);
+                return null;
+            }
+        }
+
+        function init() {
+            try {
+                if (!THREE || !CANNON) {
+                    throw new Error('Three.js or Cannon.js not loaded');
+                }
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x0d1117);
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+                camera.position.set(0, 0, initialCameraZ);
+                camera.lookAt(0, 0, 0);
+                camera.rotation.order = 'YXZ';
+                targetCameraPosition.copy(camera.position);
+                renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                document.body.appendChild(renderer.domElement);
+                const ambientLight = new THREE.AmbientLight(0x404040, 2);
+                scene.add(ambientLight);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(1, 1, 1).normalize();
+                scene.add(directionalLight);
+                world = new CANNON.World();
+                world.gravity.set(0, 0, 0);
+                world.broadphase = new CANNON.NaiveBroadphase();
+                world.solver.iterations = 10;
+                populateLegend();
+                createBubbles(fullSubredditData);
+                window.initialScatteringTimer = setTimeout(() => {
+                    if (state === 'initialScattering') {
+                        state = 'collapsed';
+                        console.log("STATE CHANGE: Transitioning to Collapsed State.");
+                        createBubbles(fullSubredditData);
+                        console.log("Bubbles settled. Central ball created.");
+                    }
+                }, 4000);
+                document.addEventListener('keydown', onKeyDown, false);
+                document.addEventListener('keyup', onKeyUp, false);
+                document.addEventListener('mousedown', onMouseDown, false);
+                document.addEventListener('mouseup', onMouseUp, false);
+                document.addEventListener('mousemove', onMouseMove, false);
+                document.addEventListener('wheel', onMouseWheel, false);
+                document.addEventListener('touchstart', onTouchStart, { passive: false });
+                document.addEventListener('touchmove', onTouchMove, { passive: false });
+                document.addEventListener('touchend', onTouchEnd, false);
+                window.addEventListener('resize', onWindowResize, false);
+                console.log("Initialization complete.");
+            } catch (e) {
+                console.error('Initialization failed:', e);
+                alert('Failed to initialize 3D Subreddit Bubble Map. Check console for details.');
+            }
+        }
+
+        function populateLegend() {
+            try {
+                const uniqueGroups = [...new Set(fullSubredditData.map(d => d.interestGroup))];
+                const groupColors = {};
+                fullSubredditData.forEach(d => {
+                    if (!groupColors[d.interestGroup]) {
+                        groupColors[d.interestGroup] = d.groupColor;
+                    }
+                });
+                legendDiv.innerHTML = '<h3 class="font-bold mb-2">Interest Groups</h3>';
+                for (const groupName of uniqueGroups) {
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    const colorBox = document.createElement('div');
+                    colorBox.className = 'legend-color';
+                    colorBox.style.backgroundColor = '#' + new THREE.Color(groupColors[groupName]).getHexString();
+                    const text = document.createElement('span');
+                    text.textContent = groupName;
+                    item.appendChild(colorBox);
+                    item.appendChild(text);
+                    legendDiv.appendChild(item);
+                }
+            } catch (e) {
+                console.error('Error populating legend:', e);
+            }
+        }
+
+        function clearSceneAndPhysics() {
+            try {
+                spheres.forEach(sphere => {
+                    if (sphere.userData.labelSprite) {
+                        scene.remove(sphere.userData.labelSprite);
+                        sphere.userData.labelSprite.material.map.dispose();
+                        sphere.userData.labelSprite.material.dispose();
+                        sphere.userData.labelSprite = null;
+                    }
+                    scene.remove(sphere);
+                    if (sphere.userData.physicsBody) {
+                        world.removeBody(sphere.userData.physicsBody);
+                    }
+                });
+                spheres = [];
+                categoryRepresentations.forEach(sphere => {
+                    scene.remove(sphere);
+                    if (sphere.userData.physicsBody) {
+                        world.removeBody(sphere.userData.physicsBody);
+                    }
+                });
+                categoryRepresentations = [];
+                if (centralBall) {
+                    scene.remove(centralBall);
+                    if (centralBall.userData.physicsBody) {
+                        world.removeBody(centralBall.userData.physicsBody);
+                    }
+                    centralBall = null;
+                }
+                infoBox.style.opacity = 0;
+                if (INTERSECTED) {
+                    INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                    if (INTERSECTED.userData.isCategoryRepresentation) {
+                        INTERSECTED.material.opacity = 0.3;
+                    }
+                }
+                INTERSECTED = null;
+                hoveredObject = null;
+                if (hoverTimeoutId) {
+                    clearTimeout(hoverTimeoutId);
+                    hoverTimeoutId = null;
+                }
+            } catch (e) {
+                console.error('Error clearing scene and physics:', e);
+            }
+        }
+
+        function createBubbles(dataSource) {
+            try {
+                console.log(`Creating bubbles for state: ${state}, data length: ${dataSource.length}`);
+                if (state === 'initialScattering' || state === 'collapsed' || state === 'allSubredditsExpanded') {
+                    clearSceneAndPhysics();
+                    awayFromCategoryStartTime = null;
+                    largestRadiusInCategory = 0;
+                    expansionStartTime = null;
+                    collapseComplete = true;
+                    collapsingCategory = null;
+                }
+                // if (state === 'initialScattering' || state === 'collapsed' || state === 'allSubredditsExpanded') {
+                //     camera.position.set(0, 0, initialCameraZ);
+                //     camera.lookAt(0, 0, 0);
+                //     targetCameraPosition.copy(camera.position);
+                //     isCameraTransitioning = false;
+                // }
+                if (state === 'initialScattering' || state === 'allSubredditsExpanded') {
+                    const subredditsToDisplay = dataSource;
+                    const maxPopulation = Math.max(...subredditsToDisplay.map(d => d.population));
+                    const scaleFactor = 25 / Math.sqrt(maxPopulation);
+                    subredditsToDisplay.forEach(data => {
+                        const radius = Math.sqrt(data.population) * scaleFactor;
+                        const geometry = new THREE.SphereGeometry(radius, 32, 32);
+                        const material = new THREE.MeshPhongMaterial({
+                            color: data.groupColor,
+                            shininess: 50,
+                            specular: 0x555555
+                        });
+                        const sphere = new THREE.Mesh(geometry, material);
+                        let initialPosition;
+                        if (state === 'initialScattering') {
+                            initialPosition = new CANNON.Vec3(
+                                (Math.random() - 0.5) * 800,
+                                (Math.random() - 0.5) * 800,
+                                (Math.random() - 0.5) * 800
+                            );
+                        } else {
+                            const initialSpreadFromCenter = 50;
+                            initialPosition = new CANNON.Vec3(
+                                (Math.random() - 0.5) * initialSpreadFromCenter,
+                                (Math.random() - 0.5) * initialSpreadFromCenter,
+                                (Math.random() - 0.5) * initialSpreadFromCenter
+                            );
+                        }
+                        const mass = Math.sqrt(data.population) * 0.001;
+                        const sphereShape = new CANNON.Sphere(radius);
+                        const body = new CANNON.Body({
+                            mass: mass,
+                            position: initialPosition,
+                            shape: sphereShape,
+                            linearDamping: 0.9,
+                            angularDamping: 0.9
+                        });
+                        world.addBody(body);
+                        sphere.userData = {
+                            name: data.name,
+                            population: data.population,
+                            originalColor: material.color.getHex(),
+                            physicsBody: body,
+                            interestGroup: data.interestGroup,
+                            isSubredditBall: true
+                        };
+                        sphere.visible = true;
+                        scene.add(sphere);
+                        spheres.push(sphere);
+                        console.log(`Created sphere: ${data.name}, Visible: ${sphere.visible}, Position: ${initialPosition.x.toFixed(2)},${initialPosition.y.toFixed(2)},${initialPosition.z.toFixed(2)}`);
+                    });
+                } else if (state === 'collapsed') {
+                    const totalPopulation = dataSource.reduce((sum, data) => sum + data.population, 0);
+                    const scaleFactor = 25 / Math.sqrt(Math.max(...dataSource.map(d => d.population)));
+                    const radius = Math.sqrt(totalPopulation) * scaleFactor * 1.5;
+                    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+                    const material = new THREE.MeshPhongMaterial({
+                        color: 0xffffff,
+                        shininess: 50,
+                        specular: 0x555555
+                    });
+                    centralBall = new THREE.Mesh(geometry, material);
+                    const mass = Math.sqrt(totalPopulation) * 0.001 * 1.5;
+                    const sphereShape = new CANNON.Sphere(radius);
+                    const body = new CANNON.Body({
+                        mass: mass,
+                        position: new CANNON.Vec3(0, 0, 0),
+                        shape: sphereShape,
+                        linearDamping: 0.9,
+                        angularDamping: 0.9
+                    });
+                    world.addBody(body);
+                    centralBall.userData = {
+                        name: 'All Subreddits',
+                        population: totalPopulation,
+                        originalColor: material.color.getHex(),
+                        physicsBody: body,
+                        isCentralBall: true,
+                        groups: [...new Set(fullSubredditData.map(d => d.interestGroup))].map(groupName => {
+                            const groupSubs = fullSubredditData.filter(d => d.interestGroup === groupName);
+                            return {
+                                name: groupName,
+                                population: groupSubs.reduce((sum, s) => sum + s.population, 0),
+                                groupColor: groupSubs[0].groupColor,
+                                subreddits: groupSubs
+                            };
+                        })
+                    };
+                    centralBall.visible = true;
+                    scene.add(centralBall);
+                    spheres.push(centralBall);
+                    console.log(`Created central ball, Visible: ${centralBall.visible}`);
+                }
+            } catch (e) {
+                console.error('Error in createBubbles:', e);
+            }
+        }
+
+        function transitionToSingleCategoryClumped(categoryName, preserveCamera = false) {
+            try {
+                console.log(`Transitioning to singleCategoryClumped for ${categoryName}, preserveCamera=${preserveCamera}`);
+                currentZoomedCategoryName = categoryName;
+                collapsingCategory = categoryName;
+                awayFromCategoryStartTime = null;
+                largestRadiusInCategory = 0;
+                expansionStartTime = null;
+                collapseComplete = false;
+                setTimeout(() => {
+                    collapseComplete = true;
+                    collapsingCategory = null;
+                    console.log(`Collapse complete for ${categoryName}.`);
+                }, 1000);
+                const subredditsInCategory = fullSubredditData.filter(d => d.interestGroup === categoryName);
+                const maxPopulation = Math.max(...subredditsInCategory.map(d => d.population));
+                const scaleFactor = 25 / Math.sqrt(Math.max(...fullSubredditData.map(d => d.population)));
+                largestRadiusInCategory = Math.sqrt(maxPopulation) * scaleFactor;
+                spheres.forEach(sphere => {
+                    if (sphere.userData.isCentralBall) {
+                        sphere.visible = false;
+                        sphere.userData.physicsBody.mass = 0;
+                        sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                    } else {
+                        sphere.visible = true;
+                        sphere.material.emissive.setHex(0x000000);
+                        sphere.material.transparent = false;
+                        sphere.material.opacity = 1.0;
+                        if (sphere.userData.labelSprite) {
+                            sphere.userData.labelSprite.visible = false;
+                        }
+                        if (sphere.userData.interestGroup === categoryName) {
+                            sphere.userData.physicsBody.mass = Math.sqrt(sphere.userData.population) * 0.001;
+                            sphere.userData.physicsBody.type = CANNON.Body.DYNAMIC;
+                            console.log(`Sphere ${sphere.userData.name} (active category) set to visible: true, dynamic`);
+                        } else {
+                            sphere.userData.physicsBody.mass = 0;
+                            sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                            console.log(`Sphere ${sphere.userData.name} (other category) set to visible: true, static`);
+                        }
+                    }
+                });
+                categoryRepresentations = [];
+                if (!preserveCamera) {
+                    const categoryCenter = groupPositions[categoryName];
+                    targetCameraPosition.set(categoryCenter.x, categoryCenter.y, categoryCenter.z + 300);
+                    isCameraTransitioning = true;
+                }
+            } catch (e) {
+                console.error('Error in transitionToSingleCategoryClumped:', e);
+            }
+        }
+
+        function handleHoverTransition(targetObject) {
+            try {
+                console.log(`Handling hover transition: state=${state}, collapseComplete=${collapseComplete}, collapsingCategory=${collapsingCategory}, target=${targetObject.userData.name}, targetGroup=${targetObject.userData.interestGroup}`);
+                if (hoveredObject !== targetObject) return;
+                INTERSECTED = targetObject;
+                if (INTERSECTED) {
+                    INTERSECTED.currentHex = INTERSECTED.material.emissive.getHex();
+                    INTERSECTED.material.emissive.setHex(0xff0000);
+                    infoBox.style.opacity = 1;
+                    if (INTERSECTED.userData.isCentralBall) {
+                        infoBox.innerHTML = `
+                            <p class="font-bold text-lg">${INTERSECTED.userData.name}</p>
+                            <p>Population: ${INTERSECTED.userData.population.toLocaleString()}</p>
+                            <p class="text-xs mt-2 text-gray-400">Hover to expand into all subreddits</p>
+                        `;
+                    } else if (INTERSECTED.userData.isSubredditBall) {
+                        infoBox.innerHTML = `
+                            <p class="font-bold text-lg">${INTERSECTED.userData.name}</p>
+                            <p>Population: ${INTERSECTED.userData.population.toLocaleString()}</p>
+                            <p class="text-xs mt-2 text-gray-400">${
+                                state === 'singleCategoryClumped' ? 
+                                `Hover to expand category: ${INTERSECTED.userData.interestGroup}` : 
+                                `Hover to clump by category: ${INTERSECTED.userData.interestGroup}`
+                            }</p>
+                        `;
+                        if (state === 'singleCategoryClumped' && INTERSECTED.userData.interestGroup === currentZoomedCategoryName) {
+                            state = 'singleCategorySubredditsExpanded';
+                            console.log(`STATE CHANGE: Transitioning to Single Category Subreddits Expanded State for ${INTERSECTED.userData.interestGroup}.`);
+                            spreadStartTime = performance.now();
+                            expansionStartTime = performance.now();
+                            collapseComplete = false;
+                            const subredditsInCategory = fullSubredditData.filter(d => d.interestGroup === currentZoomedCategoryName);
+                            const maxPopulation = Math.max(...subredditsInCategory.map(d => d.population));
+                            const scaleFactor = 25 / Math.sqrt(Math.max(...fullSubredditData.map(d => d.population)));
+                            largestRadiusInCategory = Math.sqrt(maxPopulation) * scaleFactor;
+                            spheres.forEach(sphere => {
+                                if (sphere.userData.isCentralBall) {
+                                    sphere.visible = false;
+                                    sphere.userData.physicsBody.mass = 0;
+                                    sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                                } else {
+                                    sphere.visible = true;
+                                    sphere.material.emissive.setHex(0x000000);
+                                    sphere.material.transparent = false;
+                                    sphere.material.opacity = 1.0;
+                                    if (sphere.userData.interestGroup === currentZoomedCategoryName) {
+                                        sphere.userData.physicsBody.mass = Math.sqrt(sphere.userData.population) * 0.001;
+                                        sphere.userData.physicsBody.type = CANNON.Body.DYNAMIC;
+                                        if (!sphere.userData.labelSprite) {
+                                            const sprite = createTextSprite(sphere.userData.name);
+                                            if (sprite) {
+                                                sphere.userData.labelSprite = sprite;
+                                                scene.add(sprite);
+                                            }
+                                        }
+                                        if (sphere.userData.labelSprite) {
+                                            sphere.userData.labelSprite.visible = true;
+                                        }
+                                        console.log(`Sphere ${sphere.userData.name} (active category) set to visible: true, dynamic, label: ${sphere.userData.labelSprite ? 'visible' : 'none'}`);
+                                    } else {
+                                        sphere.userData.physicsBody.mass = 0;
+                                        sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                                        if (sphere.userData.labelSprite) {
+                                            sphere.userData.labelSprite.visible = false;
+                                        }
+                                        console.log(`Sphere ${sphere.userData.name} (other category) set to visible: true, static`);
+                                    }
+                                }
+                            });
+                            categoryRepresentations = [];
+                        }
+                    }
+                    if (state === 'collapsed' && INTERSECTED.userData.isCentralBall) {
+                        state = 'allSubredditsExpanded';
+                        console.log("STATE CHANGE: Transitioning to All Subreddits Expanded State.");
+                        createBubbles(fullSubredditData);
+                        targetCameraPosition.set(0, 0, initialCameraZ);
+                        isCameraTransitioning = true;
+                    } else if (state === 'allSubredditsExpanded' && INTERSECTED.userData.isSubredditBall && (collapseComplete || INTERSECTED.userData.interestGroup !== collapsingCategory)) {
+                        state = 'singleCategoryClumped';
+                        console.log(`STATE CHANGE: Transitioning to Single Category Clumped State for ${INTERSECTED.userData.interestGroup}.`);
+                        transitionToSingleCategoryClumped(INTERSECTED.userData.interestGroup, false);
+                    }
+                }
+            } catch (e) {
+                console.error('Error in handleHoverTransition:', e);
+            }
+        }
+
+        function onKeyDown(event) {
+            try {
+                keysPressed[event.key.toLowerCase()] = true;
+                if (event.key.toLowerCase() === 'r') {
+                    state = 'initialScattering';
+                    currentZoomedCategoryName = null;
+                    clearSceneAndPhysics();
+                    console.log("STATE CHANGE: Resetting to Initial Scattering State.");
+                    createBubbles(fullSubredditData);
+                    camera.position.set(0, 0, initialCameraZ);
+                    camera.lookAt(0, 0, 0);
+                    targetCameraPosition.copy(camera.position);
+                    isCameraTransitioning = false;
+                    clearTimeout(window.initialScatteringTimer);
+                    window.initialScatteringTimer = setTimeout(() => {
+                        if (state === 'initialScattering') {
+                            state = 'collapsed';
+                            console.log("STATE CHANGE: Transitioning to Collapsed State.");
+                            createBubbles(fullSubredditData);
+                            console.log("Bubbles settled. Central ball created.");
+                        }
+                    }, 4000);
+                }
+            } catch (e) {
+                console.error('Error in onKeyDown:', e);
+            }
+        }
+
+        function onKeyUp(event) {
+            keysPressed[event.key.toLowerCase()] = false;
+        }
+
+        function onMouseDown(event) {
+            if (event.button === 0) {
+                isMouseLookActive = true;
+                document.body.classList.add('grabbing');
+            }
+        }
+
+        function onMouseMove(event) {
+            try {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                if (isMouseLookActive) {
+                    const deltaX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+                    const deltaY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+                    camera.rotation.y -= deltaX * lookSpeed;
+                    camera.rotation.x -= deltaY * lookSpeed;
+                    camera.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, camera.rotation.x));
+                    isCameraTransitioning = false;
+                }
+                if (state !== 'initialScattering') {
+                    raycaster.setFromCamera(mouse, camera);
+                    let objectsToIntersect = [];
+                    if (state === 'collapsed') {
+                        objectsToIntersect = [centralBall].filter(Boolean);
+                    } else if (state === 'singleCategoryClumped' || state === 'singleCategorySubredditsExpanded') {
+                        objectsToIntersect = spheres.filter(s => s.userData.interestGroup === currentZoomedCategoryName && s.visible);
+                    } else {
+                        objectsToIntersect = spheres.filter(s => s.visible);
+                    }
+                    console.log(`Raycasting: state=${state}, objectsToIntersect=${objectsToIntersect.length}`);
+                    let intersects = raycaster.intersectObjects(objectsToIntersect);
+                    let newHoveredObject = null;
+                    if (intersects.length > 0) {
+                        newHoveredObject = intersects[0].object;
+                        console.log(`Hover detected: ${newHoveredObject.userData.name}, group=${newHoveredObject.userData.interestGroup}`);
+                    }
+                    if (newHoveredObject !== hoveredObject) {
+                        if (hoverTimeoutId) {
+                            clearTimeout(hoverTimeoutId);
+                            hoverTimeoutId = null;
+                        }
+                        if (INTERSECTED) {
+                            INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                            if (INTERSECTED.userData.isCategoryRepresentation) {
+                                INTERSECTED.material.opacity = 0.3;
+                            }
+                        }
+                        infoBox.style.opacity = 0;
+                        INTERSECTED = null;
+                        hoveredObject = newHoveredObject;
+                        if (hoveredObject) {
+                            hoverTimeoutId = setTimeout(() => {
+                                handleHoverTransition(hoveredObject);
+                            }, hoverDelay);
+                        }
+                    }
+                } else {
+                    if (INTERSECTED) {
+                        INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                    }
+                    INTERSECTED = null;
+                    hoveredObject = null;
+                    if (hoverTimeoutId) {
+                        clearTimeout(hoverTimeoutId);
+                        hoverTimeoutId = null;
+                    }
+                    infoBox.style.opacity = 0;
+                }
+            } catch (e) {
+                console.error('Error in onMouseMove:', e);
+            }
+        }
+
+        function onMouseUp(event) {
+            if (event.button === 0) {
+                isMouseLookActive = false;
+                document.body.classList.remove('grabbing');
+            }
+        }
+
+        function onMouseWheel(event) {
+            try {
+                camera.fov -= event.deltaY * 0.05;
+                camera.fov = Math.max(20, Math.min(100, camera.fov));
+                camera.updateProjectionMatrix();
+                isCameraTransitioning = false;
+            } catch (e) {
+                console.error('Error in onMouseWheel:', e);
+            }
+        }
+
+        let lastTouchX, lastTouchY;
+        let previousTouchDistance = undefined;
+
+        function onTouchStart(event) {
+            try {
+                event.preventDefault();
+                if (event.touches.length === 1) {
+                    lastTouchX = event.touches[0].clientX;
+                    lastTouchY = event.touches[0].clientY;
+                    document.body.classList.add('grabbing');
+                } else if (event.touches.length === 2) {
+                    const touch1 = event.touches[0];
+                    const touch2 = event.touches[1];
+                    previousTouchDistance = Math.hypot(
+                        touch1.clientX - touch2.clientX,
+                        touch1.clientY - touch2.clientY
+                    );
+                }
+                processTouchHover(event);
+                isCameraTransitioning = false;
+            } catch (e) {
+                console.error('Error in onTouchStart:', e);
+            }
+        }
+
+        function onTouchMove(event) {
+            try {
+                event.preventDefault();
+                if (event.touches.length > 0 && state !== 'initialScattering') {
+                    mouse.x = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+                }
+                if (event.touches.length === 1) {
+                    const deltaX = event.touches[0].clientX - lastTouchX;
+                    const deltaY = event.touches[0].clientY - lastTouchY;
+                    camera.rotation.y -= deltaX * lookSpeed * 2;
+                    camera.rotation.x -= deltaY * lookSpeed * 2;
+                    camera.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, camera.rotation.x));
+                    lastTouchX = event.touches[0].clientX;
+                    lastTouchY = event.touches[0].clientY;
+                    isCameraTransitioning = false;
+                } else if (event.touches.length === 2) {
+                    const touch1 = event.touches[0];
+                    const touch2 = event.touches[1];
+                    const distance = Math.hypot(
+                        touch1.clientX - touch2.clientX,
+                        touch1.clientY - touch2.clientY
+                    );
+                    if (typeof previousTouchDistance !== 'undefined') {
+                        const deltaDistance = distance - previousTouchDistance;
+                        camera.fov -= deltaDistance * 0.1;
+                        camera.fov = Math.max(20, Math.min(100, camera.fov));
+                        camera.updateProjectionMatrix();
+                        isCameraTransitioning = false;
+                    }
+                    previousTouchDistance = distance;
+                }
+                if (state !== 'initialScattering') {
+                    processTouchHover(event);
+                }
+            } catch (e) {
+                console.error('Error in onTouchMove:', e);
+            }
+        }
+
+        function processTouchHover(event) {
+            try {
+                raycaster.setFromCamera(mouse, camera);
+                let objectsToIntersect = [];
+                if (state === 'collapsed') {
+                    objectsToIntersect = [centralBall].filter(Boolean);
+                } else if (state === 'singleCategoryClumped' || state === 'singleCategorySubredditsExpanded') {
+                    objectsToIntersect = spheres.filter(s => s.userData.interestGroup === currentZoomedCategoryName && s.visible);
+                } else {
+                    objectsToIntersect = spheres.filter(s => s.visible);
+                }
+                console.log(`Touch raycasting: state=${state}, objectsToIntersect=${objectsToIntersect.length}`);
+                let intersects = raycaster.intersectObjects(objectsToIntersect);
+                let newHoveredObject = null;
+                if (intersects.length > 0) {
+                    newHoveredObject = intersects[0].object;
+                    console.log(`Touch hover detected: ${newHoveredObject.userData.name}, group=${newHoveredObject.userData.interestGroup}`);
+                }
+                if (newHoveredObject !== hoveredObject) {
+                    if (hoverTimeoutId) {
+                        clearTimeout(hoverTimeoutId);
+                        hoverTimeoutId = null;
+                    }
+                    if (INTERSECTED) {
+                        INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                        if (INTERSECTED.userData.isCategoryRepresentation) {
+                            INTERSECTED.material.opacity = 0.3;
+                        }
+                    }
+                    infoBox.style.opacity = 0;
+                    INTERSECTED = null;
+                    hoveredObject = newHoveredObject;
+                    if (hoveredObject) {
+                        hoverTimeoutId = setTimeout(() => {
+                            handleHoverTransition(hoveredObject);
+                        }, hoverDelay);
+                    }
+                }
+            } catch (e) {
+                console.error('Error in processTouchHover:', e);
+            }
+        }
+
+        function onTouchEnd(event) {
+            try {
+                document.body.classList.remove('grabbing');
+                previousTouchDistance = undefined;
+                if (hoverTimeoutId) {
+                    clearTimeout(hoverTimeoutId);
+                    hoverTimeoutId = null;
+                }
+                hoveredObject = null;
+                if (event.touches.length === 0) {
+                    if (INTERSECTED) {
+                        INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                        if (INTERSECTED.userData.isCategoryRepresentation) {
+                            INTERSECTED.material.opacity = 0.3;
+                        }
+                    }
+                    infoBox.style.opacity = 0;
+                    INTERSECTED = null;
+                }
+            } catch (e) {
+                console.error('Error in onTouchEnd:', e);
+            }
+        }
+
+        function onWindowResize() {
+            try {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            } catch (e) {
+                console.error('Error in onWindowResize:', e);
+            }
+        }
+
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                world.step(timeStep);
+                if (state === 'collapsed') {
+                    if (centralBall && centralBall.userData.physicsBody) {
+                        const body = centralBall.userData.physicsBody;
+                        const vecToCenter = new CANNON.Vec3().copy(body.position).scale(-1);
+                        body.applyForce(vecToCenter.scale(centralAttractionStrength * 10), body.position);
+                    }
+                } else if (state === 'initialScattering') {
+                    for (let i = 0; i < spheres.length; i++) {
+                        const bodyI = spheres[i].userData.physicsBody;
+                        const vecToCenter = new CANNON.Vec3().copy(bodyI.position).scale(-1);
+                        bodyI.applyForce(vecToCenter.scale(centralAttractionStrength), bodyI.position);
+                        for (let j = i + 1; j < spheres.length; j++) {
+                            const bodyJ = spheres[j].userData.physicsBody;
+                            const r = new CANNON.Vec3();
+                            bodyJ.position.vsub(bodyI.position, r);
+                            const distance = r.length();
+                            if (distance < (spheres[i].geometry.parameters.radius + spheres[j].geometry.parameters.radius) * 1.5) {
+                                const forceMagnitude = -interBubbleRepulsion * bodyI.mass * bodyJ.mass / (distance * distance);
+                                const force = r.unit();
+                                force.scale(forceMagnitude, force);
+                                bodyI.applyForce(force, bodyI.position);
+                                bodyJ.applyForce(force.scale(-1), bodyJ.position);
+                            }
+                        }
+                    }
+                } else if (state === 'allSubredditsExpanded') {
+                    for (let i = 0; i < spheres.length; i++) {
+                        const sphere = spheres[i];
+                        const bodyI = sphere.userData.physicsBody;
+                        const groupOrigin = groupPositions[sphere.userData.interestGroup];
+                        if (groupOrigin) {
+                            const targetPos = new CANNON.Vec3(groupOrigin.x, groupOrigin.y, groupOrigin.z);
+                            const vecToTarget = new CANNON.Vec3();
+                            targetPos.vsub(bodyI.position, vecToTarget);
+                            bodyI.applyForce(vecToTarget.scale(subredditTargetAttractionStrength * bodyI.mass), bodyI.position);
+                        }
+                        for (let j = i + 1; j < spheres.length; j++) {
+                            const bodyJ = spheres[j].userData.physicsBody;
+                            const sameGroup = spheres[i].userData.interestGroup === spheres[j].userData.interestGroup;
+                            const r = new CANNON.Vec3();
+                            bodyJ.position.vsub(bodyI.position, r);
+                            const distance = r.length();
+                            if (distance > 0.01) {
+                                let forceMagnitude;
+                                if (sameGroup) {
+                                    forceMagnitude = attractionStrength * bodyI.mass * bodyJ.mass / (distance * distance);
+                                } else {
+                                    if (distance < (sphere.geometry.parameters.radius + spheres[j].geometry.parameters.radius) * 2) {
+                                        forceMagnitude = -interBubbleRepulsion * bodyI.mass * bodyJ.mass / (distance * distance);
+                                    } else {
+                                        forceMagnitude = 0;
+                                    }
+                                }
+                                const force = r.unit();
+                                force.scale(forceMagnitude, force);
+                                bodyI.applyForce(force, bodyI.position);
+                                bodyJ.applyForce(force.scale(-1), bodyJ.position);
+                            }
+                        }
+                    }
+                } else if (state === 'singleCategoryClumped') {
+                    spheres.forEach(sphere => {
+                        if (sphere.userData.interestGroup === currentZoomedCategoryName) {
+                            const bodyI = sphere.userData.physicsBody;
+                            const groupOrigin = groupPositions[sphere.userData.interestGroup];
+                            if (groupOrigin) {
+                                const targetPos = new CANNON.Vec3(groupOrigin.x, groupOrigin.y, groupOrigin.z);
+                                const vecToTarget = new CANNON.Vec3();
+                                targetPos.vsub(bodyI.position, vecToTarget);
+                                bodyI.applyForce(vecToTarget.scale(subredditTargetAttractionStrength * 5 * bodyI.mass), bodyI.position);
+                            }
+                            spheres.forEach(sphereJ => {
+                                if (sphereJ.userData.interestGroup === currentZoomedCategoryName && sphere !== sphereJ) {
+                                    const bodyJ = sphereJ.userData.physicsBody;
+                                    const r = new CANNON.Vec3();
+                                    bodyJ.position.vsub(bodyI.position, r);
+                                    const distance = r.length();
+                                    if (distance < (sphere.geometry.parameters.radius + sphereJ.geometry.parameters.radius) * 1.5) {
+                                        const forceMagnitude = -interBubbleRepulsion * bodyI.mass * bodyJ.mass / (distance * distance);
+                                        const force = r.unit();
+                                        force.scale(forceMagnitude, force);
+                                        bodyI.applyForce(force, bodyI.position);
+                                        bodyJ.applyForce(force.scale(-1), bodyJ.position);
+                                    }
+                                }
+                            });
+                        }
+                    });
+                    const groupOrigin = groupPositions[currentZoomedCategoryName];
+                    if (groupOrigin) {
+                        const categoryCenter = new THREE.Vector3(groupOrigin.x, groupOrigin.y, groupOrigin.z);
+                        const cameraDistance = camera.position.distanceTo(categoryCenter);
+                        const distanceThreshold = Math.max(500, 10 * largestRadiusInCategory);
+                        if (cameraDistance > distanceThreshold) {
+                            if (!awayFromCategoryStartTime) {
+                                awayFromCategoryStartTime = performance.now();
+                                console.log(`Camera moved beyond threshold (${distanceThreshold.toFixed(2)}) from ${currentZoomedCategoryName} center, starting 1-second timer.`);
+                            } else {
+                                const awayTime = (performance.now() - awayFromCategoryStartTime) / 1000;
+                                if (awayTime >= 1) {
+                                    state = 'allSubredditsExpanded';
+                                    console.log(`STATE CHANGE: Camera away for 1 second, returning to allSubredditsExpanded.`);
+                                    spheres.forEach(sphere => {
+                                        if (sphere.userData.isCentralBall) {
+                                            sphere.visible = false;
+                                            sphere.userData.physicsBody.mass = 0;
+                                            sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                                        } else {
+                                            sphere.visible = true;
+                                            sphere.userData.physicsBody.mass = Math.sqrt(sphere.userData.population) * 0.001;
+                                            sphere.userData.physicsBody.type = CANNON.Body.DYNAMIC;
+                                            if (sphere.userData.labelSprite) {
+                                                sphere.userData.labelSprite.visible = false;
+                                            }
+                                            sphere.material.emissive.setHex(0x000000);
+                                            sphere.material.transparent = false;
+                                            sphere.material.opacity = 1.0;
+                                        }
+                                    });
+                                    categoryRepresentations = [];
+                                    awayFromCategoryStartTime = null;
+                                    spreadStartTime = null;
+                                    expansionStartTime = null;
+                                    currentZoomedCategoryName = null;
+                                    largestRadiusInCategory = 0;
+                                    collapseComplete = true;
+                                    collapsingCategory = null;
+                                    
+                                }
+                            }
+                        } else {
+                            awayFromCategoryStartTime = null;
+                        }
+                    }
+                } else if (state === 'singleCategorySubredditsExpanded') {
+                    const elapsedTime = spreadStartTime ? (performance.now() - spreadStartTime) / 1000 : 0;
+                    const spreadDuration = 0.5;
+                    const groupOrigin = groupPositions[currentZoomedCategoryName];
+                    if (groupOrigin && elapsedTime < spreadDuration) {
+                        const groupCenterCannon = new CANNON.Vec3(groupOrigin.x, groupOrigin.y, groupOrigin.z);
+                        spheres.forEach(sphere => {
+                            if (sphere.userData.interestGroup === currentZoomedCategoryName) {
+                                const bodyI = sphere.userData.physicsBody;
+                                const vecFromCenter = new CANNON.Vec3();
+                                bodyI.position.vsub(groupCenterCannon, vecFromCenter);
+                                if (vecFromCenter.length() > 1) {
+                                    const outwardForceMagnitude = bodyI.mass * 500;
+                                    const outwardForce = vecFromCenter.unit().scale(outwardForceMagnitude);
+                                    bodyI.applyForce(outwardForce, bodyI.position);
+                                }
+                                spheres.forEach(sphereJ => {
+                                    if (sphereJ.userData.interestGroup === currentZoomedCategoryName && sphere !== sphereJ) {
+                                        const bodyJ = sphereJ.userData.physicsBody;
+                                        const r = new CANNON.Vec3();
+                                        bodyJ.position.vsub(bodyI.position, r);
+                                        const distance = r.length();
+                                        if (distance > 0.01) {
+                                            const forceMagnitude = -interBubbleRepulsion * bodyI.mass * bodyJ.mass * 60000 / (distance * distance);
+                                            const force = r.unit();
+                                            force.scale(forceMagnitude, force);
+                                            bodyI.applyForce(force, bodyI.position);
+                                            bodyJ.applyForce(force.scale(-1), bodyJ.position);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    if (elapsedTime >= spreadDuration) {
+                        spheres.forEach(sphere => {
+                            if (sphere.userData.interestGroup === currentZoomedCategoryName) {
+                                const bodyI = sphere.userData.physicsBody;
+                                bodyI.velocity.set(0, 0, 0);
+                                bodyI.angularVelocity.set(0, 0, 0);
+                                bodyI.type = CANNON.Body.STATIC;
+                            }
+                        });
+                        spreadStartTime = null;
+                        console.log("All movement stopped in singleCategorySubredditsExpanded state.");
+                    }
+                    if (groupOrigin) {
+                        const expansionElapsedTime = expansionStartTime ? (performance.now() - expansionStartTime) / 1000 : 0;
+                        if (expansionElapsedTime >= 1) {
+                            const categoryCenter = new THREE.Vector3(groupOrigin.x, groupOrigin.y, groupOrigin.z);
+                            const cameraDistance = camera.position.distanceTo(categoryCenter);
+                            const distanceThreshold = Math.max(500, 10 * largestRadiusInCategory);
+                            if (cameraDistance > distanceThreshold) {
+                                if (!awayFromCategoryStartTime) {
+                                    awayFromCategoryStartTime = performance.now();
+                                    console.log(`Camera moved beyond threshold (${distanceThreshold.toFixed(2)}) from ${currentZoomedCategoryName} center, starting 1-second timer.`);
+                                } else {
+                                    const awayTime = (performance.now() - awayFromCategoryStartTime) / 1000;
+                                    if (awayTime >= 1) {
+                                        state = 'singleCategoryClumped';
+                                        console.log(`STATE CHANGE: Camera away for 1 second, collapsing to singleCategoryClumped for ${currentZoomedCategoryName}.`);
+                                        transitionToSingleCategoryClumped(currentZoomedCategoryName, true);
+                                        if (INTERSECTED) {
+                                            INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex || 0x000000);
+                                            if (INTERSECTED.userData.isCategoryRepresentation) {
+                                                INTERSECTED.material.opacity = 0.3;
+                                            }
+                                        }
+                                        INTERSECTED = null;
+                                        hoveredObject = null;
+                                        if (hoverTimeoutId) {
+                                            clearTimeout(hoverTimeoutId);
+                                            hoverTimeoutId = null;
+                                        }
+                                        infoBox.style.opacity = 0;
+                                    }
+                                }
+                            } else {
+                                awayFromCategoryStartTime = null;
+                            }
+                        }
+                    }
+                }
+                spheres.forEach(sphere => {
+                    if (sphere.userData.physicsBody) {
+                        sphere.position.copy(sphere.userData.physicsBody.position);
+                        if (sphere.userData.labelSprite && sphere.userData.labelSprite.visible) {
+                            const radius = sphere.geometry.parameters.radius;
+                            sphere.userData.labelSprite.position.copy(sphere.position);
+                            sphere.userData.labelSprite.position.y += radius + 5;
+                        }
+                    }
+                });
+                categoryRepresentations.forEach(sphere => {
+                    if (sphere.userData.physicsBody) {
+                        sphere.position.copy(sphere.userData.physicsBody.position);
+                    }
+                });
+                if (centralBall && centralBall.userData.physicsBody) {
+                    centralBall.position.copy(centralBall.userData.physicsBody.position);
+                }
+                let moveDirection = new THREE.Vector3();
+                const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                if (keysPressed['w']) {
+                    moveDirection.add(forwardVector);
+                }
+                if (keysPressed['s']) {
+                    moveDirection.sub(forwardVector);
+                }
+                if (keysPressed['a']) {
+                    moveDirection.sub(rightVector);
+                }
+                if (keysPressed['d']) {
+                    moveDirection.add(rightVector);
+                }
+                if (keysPressed['q']) {
+                    moveDirection.y -= 1;
+                }
+                if (keysPressed['e']) {
+                    moveDirection.y += 1;
+                }
+                if (moveDirection.lengthSq() > 0) {
+                    moveDirection.normalize().multiplyScalar(moveSpeed);
+                    camera.position.add(moveDirection);
+                    isCameraTransitioning = false;
+                }
+                if (isCameraTransitioning) {
+                    camera.position.lerp(targetCameraPosition, cameraLerpFactor);
+                    if (state === 'singleCategoryClumped' && camera.position.distanceTo(targetCameraPosition) < 200) {
+                        state = 'singleCategorySubredditsExpanded';
+                        console.log(`STATE CHANGE: Camera close, automatically expanding category ${currentZoomedCategoryName}.`);
+                        spreadStartTime = performance.now();
+                        expansionStartTime = performance.now();
+                        collapseComplete = false;
+                        const subredditsInCategory = fullSubredditData.filter(d => d.interestGroup === currentZoomedCategoryName);
+                        const maxPopulation = Math.max(...subredditsInCategory.map(d => d.population));
+                        const scaleFactor = 25 / Math.sqrt(Math.max(...fullSubredditData.map(d => d.population)));
+                        largestRadiusInCategory = Math.sqrt(maxPopulation) * scaleFactor;
+                        spheres.forEach(sphere => {
+                            if (sphere.userData.isCentralBall) {
+                                sphere.visible = false;
+                                sphere.userData.physicsBody.mass = 0;
+                                sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                            } else {
+                                sphere.visible = true;
+                                sphere.material.emissive.setHex(0x000000);
+                                sphere.material.transparent = false;
+                                sphere.material.opacity = 1.0;
+                                if (sphere.userData.interestGroup === currentZoomedCategoryName) {
+                                    sphere.userData.physicsBody.mass = Math.sqrt(sphere.userData.population) * 0.001;
+                                    sphere.userData.physicsBody.type = CANNON.Body.DYNAMIC;
+                                    if (!sphere.userData.labelSprite) {
+                                        const sprite = createTextSprite(sphere.userData.name);
+                                        if (sprite) {
+                                            sphere.userData.labelSprite = sprite;
+                                            scene.add(sprite);
+                                        }
+                                    }
+                                    if (sphere.userData.labelSprite) {
+                                        sphere.userData.labelSprite.visible = true;
+                                    }
+                                    console.log(`Sphere ${sphere.userData.name} (active category) set to visible: true, dynamic, label: ${sphere.userData.labelSprite ? 'visible' : 'none'}`);
+                                } else {
+                                    sphere.userData.physicsBody.mass = 0;
+                                    sphere.userData.physicsBody.type = CANNON.Body.STATIC;
+                                    if (sphere.userData.labelSprite) {
+                                        sphere.userData.labelSprite.visible = false;
+                                    }
+                                    console.log(`Sphere ${sphere.userData.name} (other category) set to visible: true, static`);
+                                }
+                            }
+                        });
+                        categoryRepresentations = [];
+                    }
+                    if (camera.position.distanceTo(targetCameraPosition) < 0.1) {
+                        camera.position.copy(targetCameraPosition);
+                        isCameraTransitioning = false;
+                    }
+                }
+                renderer.render(scene, camera);
+            } catch (e) {
+                console.error('Error in animate:', e);
+            }
+        }
+
+        window.onload = function() {
+            try {
+                init();
+                animate();
+                console.log("3D Subreddit Bubble Map Initialized.");
+                console.log("Instructions: Use WASD and QE to move, click-drag to look around, scroll to zoom, R to reset.");
+            } catch (e) {
+                console.error('Error in window.onload:', e);
+                alert('Failed to start 3D Subreddit Bubble Map. Check console for details.');
+            }
+        };
+    </script>
+</body>
+</html>

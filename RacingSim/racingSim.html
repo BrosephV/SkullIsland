@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-bit Racing Sim</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 1.2rem;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 2px solid white;
+            z-index: 10;
+        }
+        #score {
+            margin-top: 10px;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .blinking {
+            animation: blinker 1s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        Use A and D to move left and right.<br>
+        <span id="score">Score: 0</span>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.147.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+        let scene, renderer, camera, car, segments = [];
+        let carSpeed = 0.5, score = 0, totalS = 0, lateralOffset = 0;
+        let spotLight, sunLight; // Declared globally for proper scope
+        const roadLength = 100, roadWidth = 20, roadHeight = 0.2;
+        const scoreElement = document.getElementById('score');
+        let isAPressed = false, isDPressed = false, isGameOver = false, animationId;
+
+        // A class to manage the road segments, which can be straight or curved.
+        class RoadSegment {
+            constructor(type, params) {
+                this.type = type;
+                this.mesh = null;
+                this.obstacles = [];
+                this.stripes = [];
+                this.children = []; // To keep track of all child meshes like stripes and obstacles
+                if (type === 'straight') {
+                    this.length = params.length || roadLength;
+                    this.arcLength = this.length;
+                } else {
+                    this.turnAngle = params.turnAngle || Math.PI / 2;
+                    this.radius = params.radius || (roadLength / this.turnAngle);
+                    this.direction = params.direction || 1;
+                    this.angle = this.direction * this.turnAngle;
+                    this.arcLength = this.radius * this.turnAngle;
+                }
+            }
+
+            setStart(startPos, startDir) {
+                this.startPos = startPos.clone();
+                this.startDir = startDir.clone();
+                if (this.type === 'curve') {
+                    const up = new THREE.Vector3(0, 1, 0);
+                    this.perp = this.startDir.clone().cross(up).multiplyScalar(this.direction).normalize();
+                    this.center = this.startPos.clone().add(this.perp.clone().multiplyScalar(this.radius));
+                    this.initialRadiusVec = new THREE.Vector3().subVectors(this.startPos, this.center);
+                    this.sign = Math.sign(this.angle);
+                }
+                this.endPos = this.getPoint(this.arcLength);
+                this.endDir = this.getTangent(this.arcLength);
+            }
+
+            getPoint(s, optionalTarget) {
+                optionalTarget = optionalTarget || new THREE.Vector3();
+                if (this.type === 'straight') {
+                    return optionalTarget.copy(this.startPos).addScaledVector(this.startDir, s);
+                } else {
+                    const theta = (s / this.arcLength) * this.angle;
+                    const c = Math.cos(theta), s_val = Math.sin(theta);
+                    const rotated = new THREE.Vector3(
+                        c * this.initialRadiusVec.x - s_val * this.initialRadiusVec.z,
+                        this.initialRadiusVec.y,
+                        s_val * this.initialRadiusVec.x + c * this.initialRadiusVec.z
+                    );
+                    return optionalTarget.copy(this.center).add(rotated);
+                }
+            }
+
+            getTangent(s) {
+                if (this.type === 'straight') {
+                    return this.startDir.clone();
+                } else {
+                    const nextS = s + 0.01;
+                    const nextPos = this.getPoint(nextS);
+                    return nextPos.sub(this.getPoint(s)).normalize();
+                }
+            }
+
+            createMesh() {
+                const roadMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                if (this.type === 'straight') {
+                    const geometry = new THREE.BoxGeometry(roadWidth, roadHeight, this.length);
+                    this.mesh = new THREE.Mesh(geometry, roadMaterial);
+                    const midPos = this.startPos.clone().add(this.endPos).multiplyScalar(0.5);
+                    this.mesh.position.copy(midPos).add(new THREE.Vector3(0, roadHeight / 2, 0));
+                    this.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this.startDir);
+                } else {
+                    const points = [];
+                    const divisions = 50;
+                    for (let i = 0; i <= divisions; i++) {
+                        const s = (i / divisions) * this.arcLength;
+                        const p = this.getPoint(s);
+                        const t = this.getTangent(s);
+                        const binormal = t.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+                        const p1 = p.clone().sub(binormal.clone().multiplyScalar(roadWidth / 2));
+                        const p2 = p.clone().add(binormal.clone().multiplyScalar(roadWidth / 2));
+                        points.push(p1, p2);
+                    }
+                    
+                    const vertices = [];
+                    for (let i = 0; i < points.length - 2; i += 2) {
+                        // First triangle
+                        vertices.push(
+                            points[i].x, points[i].y, points[i].z,
+                            points[i+1].x, points[i+1].y, points[i+1].z,
+                            points[i+2].x, points[i+2].y, points[i+2].z
+                        );
+                        // Second triangle
+                        vertices.push(
+                            points[i+1].x, points[i+1].y, points[i+1].z,
+                            points[i+3].x, points[i+3].y, points[i+3].z,
+                            points[i+2].x, points[i+2].y, points[i+2].z
+                        );
+                    }
+                    
+                    const geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                    geometry.computeVertexNormals();
+
+                    this.mesh = new THREE.Mesh(geometry, roadMaterial);
+                    this.mesh.position.y += roadHeight / 2;
+                }
+            }
+        }
+
+        // Helper function to create obstacles and road stripes
+        function createObstaclesAndStripes(seg, shouldCreateObstacles = true) {
+            // Create the dashed centerline
+            const stripeGeometry = new THREE.BoxGeometry(0.5, 0.1, 5);
+            const stripeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            for (let i = 0; i < seg.arcLength; i += 10) {
+                const s = i;
+                const position = seg.getPoint(s).add(new THREE.Vector3(0, 0.2, 0)); 
+                const stripe = new THREE.Mesh(stripeGeometry, stripeMaterial);
+                stripe.position.copy(position);
+                stripe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), seg.getTangent(s));
+                scene.add(stripe);
+                seg.children.push(stripe);
+                seg.stripes.push(stripe);
+            }
+
+            if (!shouldCreateObstacles) return;
+
+            const obstacleGeometry = new THREE.BoxGeometry(2, 2, 2);
+            const obstacleMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            for (let i = 0; i < 3; i++) {
+                const s = Math.random() * seg.arcLength;
+                const x = (Math.random() - 0.5) * (roadWidth - 4);
+                const position = seg.getPoint(s).add(
+                    seg.getTangent(s).cross(new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(x)
+                );
+                position.y = 1;
+                const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+                obstacle.position.copy(position);
+                scene.add(obstacle);
+                seg.children.push(obstacle);
+                seg.obstacles.push(obstacle);
+            }
+        }
+        
+        // Helper function to create grass and trees
+        function createGrassAndTrees(seg) {
+            const grassGeometry = new THREE.PlaneGeometry(30, 30);
+            const grassMaterial = new THREE.MeshBasicMaterial({ color: 0x00aa00, side: THREE.DoubleSide });
+            const numGrass = Math.floor(seg.arcLength / 10) * 2;
+            for (let i = 0; i < numGrass; i++) {
+                const side = i % 2 === 0 ? 1 : -1;
+                const s = (i >> 1) * 10 + Math.random() * 10;
+                if (s > seg.arcLength) continue;
+                const position = seg.getPoint(s).add(
+                    seg.getTangent(s).cross(new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(side * (roadWidth / 2 + Math.random() * 20))
+                );
+                const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+                grass.position.copy(position);
+                grass.rotation.x = -Math.PI / 2; 
+                scene.add(grass);
+                seg.children.push(grass);
+            }
+
+            const treeTrunkGeometry = new THREE.BoxGeometry(1, 3, 1);
+            const treeTrunkMaterial = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
+            const treeLeavesGeometry = new THREE.BoxGeometry(3, 3, 3);
+            const treeLeavesMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
+            for (let i = 0; i < 10; i++) {
+                const side = Math.random() > 0.5 ? 1 : -1;
+                const s = Math.random() * seg.arcLength;
+                const position = seg.getPoint(s).add(
+                    seg.getTangent(s).cross(new THREE.Vector3(0, 1, 0)).normalize().multiplyScalar(side * (roadWidth / 2 + Math.random() * 20))
+                );
+                const trunk = new THREE.Mesh(treeTrunkGeometry, treeTrunkMaterial);
+                trunk.position.copy(position).add(new THREE.Vector3(0, 1.5, 0));
+                scene.add(trunk);
+                seg.children.push(trunk);
+                const leaves = new THREE.Mesh(treeLeavesGeometry, treeLeavesMaterial);
+                leaves.position.copy(position).add(new THREE.Vector3(0, 3.5, 0));
+                scene.add(leaves);
+                seg.children.push(leaves);
+            }
+        }
+        
+        // This function creates the simple, blocky fallback car
+        function createFallbackCar() {
+            car = new THREE.Group();
+
+            // Main body
+            const bodyGeometry = new THREE.BoxGeometry(2, 1, 4);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x0077ff, emissive: 0x001122 });
+            const carBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            car.add(carBody);
+
+            // Cabin/windows
+            const cabinGeometry = new THREE.BoxGeometry(1.8, 0.8, 2);
+            const cabinMaterial = new THREE.MeshPhongMaterial({ color: 0x222222 });
+            const carCabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+            carCabin.position.y = 0.9;
+            carCabin.position.z = -0.5;
+            car.add(carCabin);
+
+            // Wheels
+            const wheelGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+            const wheelFrontLeft = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheelFrontLeft.position.set(-1.2, -0.2, -1.2);
+            car.add(wheelFrontLeft);
+            const wheelFrontRight = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheelFrontRight.position.set(1.2, -0.2, -1.2);
+            car.add(wheelFrontRight);
+            const wheelBackLeft = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheelBackLeft.position.set(-1.2, -0.2, 1.2);
+            car.add(wheelBackLeft);
+            const wheelBackRight = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheelBackRight.position.set(1.2, -0.2, 1.2);
+            car.add(wheelBackRight);
+
+            // Initialize the collision box
+            car.collisionBox = new THREE.Box3();
+            scene.add(car);
+        }
+
+        // Main game initialization function
+        function init() {
+            scene = new THREE.Scene();
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Load a simple GIF as the background
+            const textureLoader = new THREE.TextureLoader();
+            textureLoader.load('https://i.imgur.com/AUAiejX.gif', (texture) => {
+                scene.background = texture;
+            });
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // Attempt to load the custom car.obj model
+            loadCarModel();
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            // Add a directional light to simulate a sun-like effect
+            sunLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            sunLight.position.set(5, 10, 5);
+            scene.add(sunLight);
+
+            // Add a spotlight to create more focused lighting on the car
+            spotLight = new THREE.SpotLight(0xffffff, 1, 200, Math.PI / 4, 0.5);
+            spotLight.position.set(0, 100, 0);
+            spotLight.target.position.set(0, 0, 0);
+            scene.add(spotLight);
+            scene.add(spotLight.target);
+
+            // Initial road segments
+            let currentPos = new THREE.Vector3(0, 0, 0);
+            let currentDir = new THREE.Vector3(0, 0, -1);
+            for (let i = 0; i < 5; i++) {
+                // Do not add any obstacles on the initial straight segments
+                addNewSegment(currentPos, currentDir, 'straight', false);
+                const lastSeg = segments[segments.length - 1];
+                currentPos = lastSeg.endPos;
+                currentDir = lastSeg.endDir;
+            }
+
+            // Place car at the start of the last segment
+            totalS = roadLength * 4 + 10;
+            updateCarAndCameraPosition();
+
+            // Controls
+            window.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 'a') isAPressed = true;
+                if (e.key.toLowerCase() === 'd') isDPressed = true;
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.key.toLowerCase() === 'a') isAPressed = false;
+                if (e.key.toLowerCase() === 'd') isDPressed = false;
+            });
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            animate();
+        }
+
+        // Function to load the car model from an OBJ file
+        function loadCarModel() {
+            const loader = new OBJLoader();
+            // Wrap the load function in a try/catch block to handle the URL parsing error
+            // that can occur in some environments (like running from a local file).
+            try {
+                // Attempt to load the car.obj file from the local directory
+                loader.load('./car.obj',
+                    // On load callback
+                    function(obj) {
+                        car = obj;
+                        // Iterate through the loaded object's children and apply a new material.
+                        // This ensures it has a color and responds to the new lights.
+                        const newMaterial = new THREE.MeshStandardMaterial({
+                            color: 0xffffff,    // A dark gray for the base color
+                            metalness: 0.9,     // High metalness for a metallic look
+                            roughness: 0.2,     // Low roughness for a shiny surface
+                            emissive: 0x0a0a0a  // A slight emissive glow
+                        });
+                        car.traverse((child) => {
+                            if (child.isMesh) {
+                                child.material = newMaterial;
+                            }
+                        });
+                        
+                        car.scale.set(0.15, 0.15, 0.15);
+                        // Initialize the collision box here as well
+                        car.collisionBox = new THREE.Box3();
+                        scene.add(car);
+                    },
+                    // On progress callback
+                    function(xhr) {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    // On error callback
+                    function(error) {
+                        console.error('An error happened while loading the OBJ model:', error);
+                        console.log('Falling back to default car model.');
+                        createFallbackCar();
+                    }
+                );
+            } catch (e) {
+                // This catch block handles the specific 'Failed to parse URL' error
+                // that can occur when running the file locally without a web server.
+                console.error('An error occurred during OBJLoader setup:', e);
+                console.log('Falling back to default car model.');
+                createFallbackCar();
+            }
+        }
+
+        // Creates and adds a new road segment to the scene
+        function addNewSegment(pos, dir, forcedType = null, addObstacles = true) {
+            const type = forcedType || (Math.random() < 0.3 ? 'curve' : 'straight');
+            let seg = type === 'straight'
+                ? new RoadSegment('straight', { length: roadLength })
+                : new RoadSegment('curve', { turnAngle: Math.PI / 2, radius: roadLength / (Math.PI / 2), direction: Math.random() < 0.5 ? 1 : -1 });
+            seg.setStart(pos, dir);
+            seg.createMesh();
+            scene.add(seg.mesh);
+            createObstaclesAndStripes(seg, addObstacles);
+            createGrassAndTrees(seg);
+            segments.push(seg);
+        }
+
+        // Removes old road segments to manage memory and performance
+        function removeOldSegment() {
+            const seg = segments.shift();
+            totalS -= seg.arcLength;
+            scene.remove(seg.mesh);
+            seg.children.forEach(child => scene.remove(child));
+        }
+
+        // Updates the car and camera's position and orientation on the road
+        function updateCarAndCameraPosition() {
+            let cumulative = 0, currentSeg, localS;
+            for (let i = 0; i < segments.length; i++) {
+                if (totalS < cumulative + segments[i].arcLength) {
+                    currentSeg = segments[i];
+                    localS = totalS - cumulative;
+                    break;
+                }
+                cumulative += segments[i].arcLength;
+            }
+            if (!currentSeg || !car) {
+                // If there's no car yet (still loading), do nothing.
+                if (!car) return;
+                console.warn("No current segment found for totalS:", totalS);
+                return;
+            }
+
+            const tangent = currentSeg.getTangent(localS);
+            const binormal = tangent.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+            
+            // Get the road's center position
+            const roadPoint = currentSeg.getPoint(localS);
+            
+            // Update car position based on lateralOffset
+            car.position.copy(roadPoint).add(binormal.clone().multiplyScalar(lateralOffset)).add(new THREE.Vector3(0, 0.5, 0));
+            
+            // Set car's forward direction to align with the road
+            // We use the standard (0, 0, 1) as the car's forward vector.
+            car.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tangent);
+            
+            // --- The lateral rotation logic has been removed here to prevent tilting ---
+
+            // Create a quaternion for the camera based on the road's direction (not the car's lateral movement)
+            const cameraQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 1, 0)).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), tangent));
+            
+            // Position the camera relative to the road's center, not the car's position
+            const cameraOffset = new THREE.Vector3(0, 15, 25);
+            const transformedCameraOffset = cameraOffset.clone().applyQuaternion(cameraQuaternion); 
+            // The camera's position is now calculated based on the road's center point
+            const cameraRoadPoint = currentSeg.getPoint(localS).add(new THREE.Vector3(0, 0.5, 0)); 
+            camera.position.copy(cameraRoadPoint).add(transformedCameraOffset);
+            
+            // Make the camera look at a point slightly ahead of the car on the road
+            const cameraLookAtTarget = new THREE.Vector3(0, 1, -15);
+            const transformedLookAt = cameraLookAtTarget.clone().applyQuaternion(cameraQuaternion);
+            camera.lookAt(roadPoint.clone().add(transformedLookAt));
+            
+            // Update spotlight to follow the car
+            spotLight.position.copy(car.position).add(new THREE.Vector3(0, 10, 0));
+            spotLight.target.position.copy(car.position);
+        }
+
+        // Resets the game state and recreates the initial road
+        function resetGame() {
+            score = 0;
+            lateralOffset = 0;
+            isAPressed = isDPressed = isGameOver = false;
+            scoreElement.textContent = `Score: 0`;
+
+            while (segments.length) {
+                const seg = segments.pop();
+                scene.remove(seg.mesh);
+                seg.children.forEach(child => scene.remove(child));
+            }
+
+            let currentPos = new THREE.Vector3(0, 0, 0);
+            let currentDir = new THREE.Vector3(0, 0, -1);
+            for (let i = 0; i < 5; i++) {
+                addNewSegment(currentPos, currentDir, 'straight', false);
+                const lastSeg = segments[segments.length - 1];
+                currentPos = lastSeg.endPos;
+                currentDir = lastSeg.endDir;
+            }
+
+            totalS = roadLength * 4 + 10;
+            if (car) {
+                updateCarAndCameraPosition();
+            }
+            animate();
+        }
+
+        // Displays the game over message and sets up the restart listener
+        function gameOver() {
+            isGameOver = true;
+            cancelAnimationFrame(animationId);
+
+            const gameOverMessage = document.createElement('div');
+            gameOverMessage.id = 'gameOverMessage';
+            gameOverMessage.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #ff0000;
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                font-size: 2rem;
+                font-family: 'Courier New', Courier, monospace;
+                z-index: 100;
+                border: 2px solid white;
+                box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            `;
+            gameOverMessage.innerHTML = `Game Over!<br>Your score: ${Math.floor(score)}<br><br>Press any key to restart.`;
+            document.body.appendChild(gameOverMessage);
+
+            setTimeout(() => {
+                window.addEventListener('keydown', function restartListener() {
+                    const msg = document.getElementById('gameOverMessage');
+                    if (msg) msg.remove();
+                    resetGame();
+                    window.removeEventListener('keydown', restartListener);
+                });
+            }, 500);
+        }
+
+        // The main game loop
+        function animate() {
+            if (isGameOver) return;
+            animationId = requestAnimationFrame(animate);
+
+            if (car) {
+                // Update car position only if the car object exists
+                lateralOffset += (isDPressed ? 0.07 : 0) - (isAPressed ? 0.07 : 0);
+                lateralOffset = THREE.MathUtils.clamp(lateralOffset, -(roadWidth / 2 - 1), roadWidth / 2 - 1);
+                totalS += carSpeed;
+
+                // Check for adding new segments and removing old ones
+                const totalPathLength = segments.reduce((sum, seg) => sum + seg.arcLength, 0);
+                if (totalS > totalPathLength - (roadLength * 2)) {
+                    addNewSegment(segments[segments.length - 1].endPos, segments[segments.length - 1].endDir);
+                }
+                if (segments.length > 0 && totalS > segments[0].arcLength + roadLength * 2) {
+                    removeOldSegment();
+                }
+
+                updateCarAndCameraPosition();
+                
+                // Update car's precise collision box. We use manual dimensions to prevent the box from being too wide.
+                const carPosition = car.position;
+                car.collisionBox.set(
+                    new THREE.Vector3(carPosition.x - 0.75, carPosition.y, carPosition.z - 1.75),
+                    new THREE.Vector3(carPosition.x + 0.75, carPosition.y + 1, carPosition.z + 1.75)
+                );
+
+                // Collision detection
+                for (let seg of segments) {
+                    for (let obstacle of seg.obstacles) {
+                        if (car.collisionBox.intersectsBox(new THREE.Box3().setFromObject(obstacle))) {
+                            gameOver();
+                            return;
+                        }
+                    }
+                }
+
+                score += carSpeed;
+                scoreElement.textContent = `Score: ${Math.floor(score)}`;
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Tabletop Simulator with Tavern Elements</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #1f2937; color: #e5e7eb; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 15px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            max-width: 300px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            z-index: 1000;
+        }
+        .message-box {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #3b82f6; /* Blue-500 */
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 999;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .message-box.show {
+            opacity: 1;
+        }
+        #command-panel {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background-color: #374151; /* Gray-700 */
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 280px;
+        }
+        #command-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #4b5563; /* Gray-600 */
+            background-color: #1f2937; /* Gray-800 */
+            color: #e5e7eb;
+            font-size: 1rem;
+            box-sizing: border-box; /* Include padding in width */
+        }
+        #command-input::placeholder {
+            color: #9ca3af; /* Gray-400 */
+        }
+        #execute-command-btn {
+            padding: 10px 15px;
+            border-radius: 6px;
+            background-color: #4f46e5; /* Indigo-600 */
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: bold;
+            transition: background-color 0.2s ease-in-out;
+        }
+        #execute-command-btn:hover {
+            background-color: #6366f1; /* Indigo-500 */
+        }
+        #actor-target-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #374151; /* Gray-700 */
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 44px 6px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 150px;
+        }
+        #actor-target-panel p {
+            margin: 0;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #actor-target-panel span {
+            font-weight: bold;
+            color: #6366f1; /* Indigo-500 */
+        }
+        #spell-button-panel {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: #374151; /* Gray-700 */
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 180px; /* Adjusted width for spell buttons */
+        }
+        .spell-btn {
+            padding: 10px 15px;
+            border-radius: 6px;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: bold;
+            transition: background-color 0.2s ease-in-out;
+            text-align: left; /* Align text to left */
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .spell-btn:hover {
+            opacity: 0.9;
+        }
+        .spell-btn span {
+            margin-left: 8px;
+        }
+
+        /* Specific spell button colors */
+        #firebolt-btn { background-color: #ef4444; } /* Red-500 */
+        #firebolt-btn:hover { background-color: #dc2626; } /* Red-600 */
+        #lightning-btn { background-color: #3b82f6; } /* Blue-500 */
+        #lightning-btn:hover { background-color: #2563eb; } /* Blue-600 */
+        #magic-missile-btn { background-color: #a855f7; } /* Purple-500 */
+        #magic-missile-btn:hover { background-color: #9333ea; } /* Purple-600 */
+        #fireball-btn { background-color: #f97316; } /* Orange-500 */
+        #fireball-btn:hover { background-color: #ea580c; } /* Orange-600 */
+        #sword-swing-btn { background-color: #10b981; } /* Emerald-500 */
+        #sword-swing-btn:hover { background-color: #059669; } /* Emerald-600 */
+
+    </style>
+    <!-- Tailwind CSS CDN for modern styles (optional, but good for messages) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              inter: ['Inter', 'sans-serif'],
+            },
+          },
+        },
+      };
+    </script>
+</head>
+<body>
+    <div id="loading-overlay">Loading...</div>
+    <div id="info">
+        <h3>Tabletop Simulator Controls:</h3>
+        <ul>
+            <li>**Left Click + Drag**: Rotate Camera</li>
+            <li>**Right Click + Drag** (or Ctrl + Left Click): Pan Camera</li>
+            <li>**Scroll Wheel**: Zoom In/Out</li>
+            <li>**Left Click + Drag Mini**: Move Mini (snaps to hex)</li>
+            <li>**Left Click on Mini**: Set as Target</li>
+        </ul>
+        <h3>Text Commands:</h3>
+        <ul>
+            <li>**move [number] [direction]** (e.g., "move 5 right", "move 3 up")</li>
+            <li>Valid directions: `right`, `left`, `up`, `down`</li>
+            <li>**cast [spell] at [mini-ID]** (e.g., "cast firebolt at mini-2")</li>
+            <li>**swing sword** (for the current actor)</li>
+            <li>**Target:** `mini-1` for movement; `mini-1` to `[mini-ID]` for spells.</li>
+        </ul>
+    </div>
+    <div id="message-box" class="message-box"></div>
+
+    <div id="actor-target-panel">
+        <p>Self: <span id="current-actor-display">mini-1</span></p>
+        <p>Target: <span id="current-target-display">None</span></p>
+    </div>
+
+    <div id="spell-button-panel">
+        <button id="firebolt-btn" class="spell-btn">Firebolt <span>🔥</span></button>
+        <button id="lightning-btn" class="spell-btn">Lightning <span>⚡</span></button>
+        <button id="magic-missile-btn" class="spell-btn">Magic Missile <span>☄️</span></button>
+        <button id="fireball-btn" class="spell-btn">Fireball <span>💥</span></button>
+        <button id="sword-swing-btn" class="spell-btn">Sword Swing <span>⚔️</span></button>
+    </div>
+
+    <div id="command-panel">
+        <input type="text" id="command-input" placeholder="e.g., move 5 right">
+        <button id="execute-command-btn">Execute Command</button>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for camera movement -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- STLLoader for STL models (still included for structure, but not used for mini-1 directly) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <!-- GLTFLoader for GLTF models (still included for structure, but not used for mini-2 directly) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+    <script type="module">
+        // --- Core Three.js Setup ---
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        let draggableObjects = []; // Used by raycaster for click-drag detection
+        let miniObjects = {}; // Dictionary to store minis by their ID for easy lookup (e.g., for commands)
+        let currentlyDragging = null;
+        let intersectPlane;
+        let loadingOverlay = document.getElementById('loading-overlay');
+        let messageBox = document.getElementById('message-box');
+        let commandInput = document.getElementById('command-input');
+        let executeCommandBtn = document.getElementById('execute-command-btn');
+
+        // UI elements for actor and target display
+        let currentActorDisplay = document.getElementById('current-actor-display');
+        let currentTargetDisplay = document.getElementById('current-target-display');
+
+        // Global state for current actor and target
+        let currentActorId = 'mini-1'; // Default active actor
+        let currentTargetId = null; // No target initially
+
+        const hexSize = 5;
+        const hexHeight = 1;
+        const gridSize = 10; // 10x10 hex grid
+        const hexes = []; // To store references to all hex mesh objects, including their outlines
+
+        // --- Tavern Zone Definition ---
+        const tavernMinR = 3; // Min row for tavern interior
+        const tavernMaxR = 6; // Max row for tavern interior
+        const tavernMinC = 3; // Min column for tavern interior
+        const tavernMaxC = 6; // Max column for tavern interior
+        const wallHeight = 10;
+        const wallThickness = 1;
+        const doorWidth = hexSize * 1.5; // Width of the door
+        const doorHeight = wallHeight * 0.8; // Height of the door
+
+        // --- Spell Animation Variables ---
+        // Firebolt
+        let fireboltGroup = null;
+        let fireboltLight = null;
+        let fireboltParticles = [];
+        const fireboltParticleGeometry = new THREE.SphereGeometry(0.1, 4, 4);
+        const fireboltParticleMaterial = new THREE.MeshBasicMaterial({ color: 0xffa500, transparent: true });
+        let fireboltStartPosition = new THREE.Vector3();
+        let fireboltTargetPosition = new THREE.Vector3();
+        let fireboltActive = false;
+        let fireboltProgress = 0;
+        const fireboltSpeed = 0.05;
+        const fireboltParticleSpawnRate = 3;
+        const fireboltParticleLifespan = 50;
+
+        // Lightning Bolt
+        let lightningGroup = null;
+        let lightningActive = false;
+        let lightningDuration = 0; // Frames
+        const lightningMaxDuration = 15; // How many frames the lightning lasts
+        let lightningPoints = []; // Stores the points for the lightning line
+
+        // Magic Missile
+        let magicMissiles = []; // Array of { mesh, start, target, progress, speed, delay }
+        const magicMissileCount = 3;
+        const magicMissileSpeed = 0.03;
+        const magicMissileDelay = 15; // Frames between each missile launch
+        const magicMissileGeometry = new THREE.SphereGeometry(0.3, 6, 6);
+        const magicMissileMaterial = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 1 });
+
+        // Fireball
+        let fireballGroup = null;
+        let fireballActive = false;
+        let fireballStartPosition = new THREE.Vector3();
+        let fireballTargetPosition = new THREE.Vector3();
+        let fireballProgress = 0;
+        const fireballSpeed = 0.02;
+        let fireballExplosionParticles = [];
+        const fireballExplosionParticleGeometry = new THREE.SphereGeometry(0.2, 4, 4);
+        const fireballExplosionParticleMaterial = new THREE.MeshBasicMaterial({ color: 0xff8c00, transparent: true }); // Dark Orange
+        const fireballExplosionDuration = 60; // Frames for explosion
+        let fireballExplosionTimer = 0;
+
+        // Sword Swing
+        let swordSwingGroup = null;
+        let swordSwingActive = false;
+        let swordSwingProgress = 0;
+        const swordSwingDuration = 20; // Frames for the swing animation
+        const swordLength = hexSize * 1.5;
+        const swordWidth = hexSize * 0.2;
+
+        // --- Global Textures and Materials ---
+        let groundTexture, woodFloorTexture, woodWallTexture, sidewalkTexture, doorTexture;
+        let groundMaterial, defaultHexMaterial, woodFloorHexMaterial, wallMaterial, sidewalkMaterial, doorMaterial;
+
+        // --- Asset Loading with LoadingManager ---
+        const manager = new THREE.LoadingManager();
+        const textureLoader = new THREE.TextureLoader(manager);
+
+        manager.onStart = function ( url, itemsLoaded, itemsTotal ) {
+            loadingOverlay.style.display = 'flex';
+            console.log( 'Started loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+        };
+
+        manager.onLoad = function ( ) {
+            loadingOverlay.style.display = 'none';
+            console.log( 'Loading complete!');
+            // All textures are loaded, now create materials and build the scene
+            createMaterials();
+            createTable();
+            createHexGrid(); // This will apply sidewalk material to all hexes
+            applyTavernFloor(); // Then apply wood floor to tavern hexes
+            createTavernWalls(); // Walls are created
+            createDoor(); // Door is created within walls
+            createBarrels(); // Barrels are created
+            loadMinis();
+            updateUI(); // Initial UI update
+            animate(); // Start the animation loop after everything is loaded
+        };
+
+        manager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
+            console.log( 'Loading file: ' + url + '.\nLoaded ' + itemsLoaded + ' of ' + itemsTotal + ' files.' );
+        };
+
+        manager.onError = function ( url ) {
+            console.error( 'There was an error loading ' + url );
+            // Fallback for specific textures if they fail
+            if (url.includes('wood-2045379_1280.jpg')) { // Wood floor
+                woodFloorHexMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true }); // SaddleBrown fallback
+                showMessage(`Failed to load wood floor texture. Using solid brown.`);
+            } else if (url.includes('wood-2045380_1280.jpg')) { // Wood wall
+                wallMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // SaddleBrown fallback
+                showMessage(`Failed to load wood wall texture. Using solid brown.`);
+            } else if (url.includes('grey-pavement-texture.jpg')) { // Sidewalk
+                sidewalkMaterial = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, flatShading: true }); // Dark gray fallback
+                showMessage(`Failed to load sidewalk texture. Using solid dark gray.`);
+            } else if (url.includes('ebony-horizontal-pivot-door')) { // Door
+                doorMaterial = new THREE.MeshStandardMaterial({ color: 0x301934 }); // Dark purple fallback
+                showMessage(`Failed to load door texture. Using solid dark purple.`);
+            }
+            else {
+                showMessage(`Failed to load asset: ${url}. Using fallback colors.`);
+            }
+        };
+
+        // Function to show messages
+        function showMessage(msg) {
+            messageBox.textContent = msg;
+            messageBox.classList.add('show');
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, 3000); // Hide after 3 seconds
+        }
+
+        // Function to update the actor/target UI displays
+        function updateUI() {
+            currentActorDisplay.textContent = currentActorId;
+            currentTargetDisplay.textContent = currentTargetId ? currentTargetId : 'None';
+        }
+
+        // Initialize the scene
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1f2937); // Dark gray background
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 50, 75); // Adjusted camera position for better overview
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight1.position.set(5, 10, 5);
+            scene.add(directionalLight1);
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight2.position.set(-5, -10, -5);
+            scene.add(directionalLight2);
+
+            // Controls (OrbitControls for free camera movement)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Animate camera movements
+            controls.dampingFactor = 0.05;
+            controls.mouseButtons = {
+                LEFT: THREE.MOUSE.ROTATE,
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: THREE.MOUSE.PAN
+            };
+            controls.target.set(0, 0, 0); // Focus on the center of the table
+
+            // Raycaster for interactions
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Intersection plane for drag and drop (at Y=0, where minis sit)
+            // This plane will be flat, minis will snap to hex's actual Y
+            intersectPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+            // Add event listeners
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            renderer.domElement.addEventListener('pointermove', onPointerMove);
+            renderer.domElement.addEventListener('pointerup', onPointerUp);
+            window.addEventListener('resize', onWindowResize);
+            executeCommandBtn.addEventListener('click', onExecuteCommand);
+            commandInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    onExecuteCommand();
+                }
+            });
+
+            // Spell button event listeners
+            document.getElementById('firebolt-btn').addEventListener('click', () => castSpellButton('firebolt'));
+            document.getElementById('lightning-btn').addEventListener('click', () => castSpellButton('lightning'));
+            document.getElementById('magic-missile-btn').addEventListener('click', () => castSpellButton('magic missile'));
+            document.getElementById('fireball-btn').addEventListener('click', () => castSpellButton('fireball'));
+            document.getElementById('sword-swing-btn').addEventListener('click', () => castSpellButton('sword swing')); // New sword swing button
+
+            loadTextures(); // Start loading textures
+            // The rest of the scene setup (createMaterials, createTable, createHexGrid, loadMinis)
+            // will be called by manager.onLoad after all textures are loaded.
+        }
+
+        // --- Geometric Helpers ---
+
+        // Helper for Hexagon geometry
+        function createHexagonGeometry(radius, height) {
+            const hexShape = new THREE.Shape();
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const x = radius * Math.cos(angle);
+                const y = radius * Math.sin(angle);
+                if (i === 0) hexShape.moveTo(x, y);
+                else hexShape.lineTo(x, y);
+            }
+            hexShape.closePath();
+
+            const extrudeSettings = {
+                steps: 1,
+                depth: height,
+                bevelEnabled: false,
+            };
+            return new THREE.ExtrudeGeometry(hexShape, extrudeSettings);
+        }
+
+        // --- Scene Elements Creation ---
+
+        function loadTextures() {
+            // Ground texture
+            groundTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+            groundTexture.wrapS = THREE.RepeatWrapping;
+            groundTexture.wrapT = THREE.RepeatWrapping;
+            groundTexture.repeat.set(4, 4);
+
+            // Wood floor texture for interior hexes (from Pixabay)
+            woodFloorTexture = textureLoader.load('https://cdn.pixabay.com/photo/2017/02/07/09/02/wood-2045379_1280.jpg');
+            woodFloorTexture.wrapS = THREE.RepeatWrapping;
+            woodFloorTexture.wrapT = THREE.RepeatWrapping;
+            woodFloorTexture.repeat.set(0.1125, 0.1125); // Scaled up
+
+            // Generic wood wall texture (from Pixabay)
+            woodWallTexture = textureLoader.load('https://cdn.pixabay.com/photo/2017/02/07/09/02/wood-2045380_1280.jpg');
+            woodWallTexture.wrapS = THREE.RepeatWrapping;
+            woodWallTexture.wrapT = THREE.RepeatWrapping;
+            woodWallTexture.repeat.set(1, 1); // Adjusted to fill more
+
+            // Sidewalk texture (New URL)
+            sidewalkTexture = textureLoader.load('https://media.istockphoto.com/id/1142625314/photo/grey-pavement-texture.jpg?s=1024x1024&w=is&k=20&c=44oOQ7XD44xcQoF7T7F3N6m6CgK4kCMTurYLgTtsVSM=');
+            sidewalkTexture.wrapS = THREE.RepeatWrapping;
+            sidewalkTexture.wrapT = THREE.RepeatWrapping;
+            sidewalkTexture.repeat.set(0.1125, 0.1125); // Scaled up
+
+            // Door texture
+            doorTexture = textureLoader.load('https://doorsdirect.co.za/cdn/shop/files/0008750_ebony-horizontal-pivot-door-pre-hung-1200w-x-2032.webp?v=1750833456');
+            doorTexture.wrapS = THREE.RepeatWrapping;
+            doorTexture.wrapT = THREE.RepeatWrapping;
+            doorTexture.repeat.set(1, 1);
+        }
+
+        function createMaterials() {
+            groundMaterial = new THREE.MeshStandardMaterial({ map: groundTexture });
+            sidewalkMaterial = new THREE.MeshStandardMaterial({ map: sidewalkTexture, flatShading: true }); // New: Sidewalk material
+            woodFloorHexMaterial = new THREE.MeshStandardMaterial({ map: woodFloorTexture, flatShading: true });
+            wallMaterial = new THREE.MeshStandardMaterial({ map: woodWallTexture });
+            doorMaterial = new THREE.MeshStandardMaterial({ map: doorTexture });
+
+            // Fallback checks (in case textures failed to load)
+            if (!woodFloorHexMaterial.map) woodFloorHexMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, flatShading: true });
+            if (!wallMaterial.map) wallMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            if (!sidewalkMaterial.map) sidewalkMaterial = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, flatShading: true });
+            if (!doorMaterial.map) doorMaterial = new THREE.MeshStandardMaterial({ color: 0x301934 });
+        }
+
+        function createTable() {
+            // Table surface (larger plane with a ground texture)
+            const tableGeometry = new THREE.PlaneGeometry(gridSize * hexSize * 2.5, gridSize * hexSize * 2.5);
+            const table = new THREE.Mesh(tableGeometry, groundMaterial);
+            table.rotation.x = -Math.PI / 2; // Rotate to lie flat
+            table.position.y = -hexHeight / 2 - 0.1; // Slightly below the hexes
+            scene.add(table);
+        }
+        
+        // Function to generate a topological height for a hex
+        function getHexTopologyHeight(r, c) {
+            // Simple height variation: some random steps
+            const heightLevels = [0, hexHeight * 0.5, hexHeight * 1, hexHeight * 1.5]; // Example height steps
+            // Make central areas more likely to be higher
+            const centerX = gridSize / 2;
+            const centerY = gridSize / 2;
+            const distance = Math.sqrt(Math.pow(r - centerY, 2) + Math.pow(c - centerX, 2));
+            
+            let heightIndex;
+            if (distance < gridSize * 0.2) { // Central area
+                heightIndex = Math.floor(Math.random() * 2) + 2; // 1.0 or 1.5 hexHeight
+            } else if (distance < gridSize * 0.4) { // Mid area
+                heightIndex = Math.floor(Math.random() * 2) + 1; // 0.5 or 1.0 hexHeight
+            } else { // Outer area
+                heightIndex = Math.floor(Math.random() * 2); // 0 or 0.5 hexHeight
+            }
+            return heightLevels[Math.min(heightIndex, heightLevels.length - 1)]; // Ensure index is within bounds
+        }
+
+        function createHexGrid() {
+            const offset = hexSize * 1.73205; // sqrt(3) * hexSize for horizontal spacing
+            const rowOffset = hexSize * 1.5; // 1.5 * hexSize for vertical spacing
+
+            const hexGeometry = createHexagonGeometry(hexSize, hexHeight);
+            const outlineMaterial = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 3 }); // Black outline
+
+            const gridOriginX = -(gridSize * offset) / 2 + offset / 4;
+            const gridOriginZ = -(gridSize * rowOffset) / 2 + rowOffset / 2; // Z because hexes are rotated to lay flat
+
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    const x = c * offset + (r % 2) * (offset / 2) + gridOriginX;
+                    const z = r * rowOffset + gridOriginZ;
+                    
+                    const yOffset = getHexTopologyHeight(r, c); // Get height for this hex
+
+                    // All hexes start with the sidewalk material
+                    const hex = new THREE.Mesh(hexGeometry, sidewalkMaterial.clone()); // Use .clone() to ensure independent material instances
+                    hex.userData.originalMaterial = sidewalkMaterial; // Store original material for reversion
+                    
+                    // Position the hex so its base is at yOffset
+                    hex.position.set(x, yOffset + hexHeight / 2, z); 
+                    hex.rotation.x = Math.PI / 2; // Rotate to lay flat on the XZ plane
+                    hex.rotation.z = Math.PI / 6; // Standard hex orientation
+                    hex.userData.gridCoords = { r, c }; // Store grid coordinates
+                    hex.userData.yOffset = yOffset; // Store its custom yOffset
+                    scene.add(hex);
+                    hexes.push(hex); // Add main hex to list
+
+                    // Create outline for the hex
+                    const edges = new THREE.EdgesGeometry(hexGeometry);
+                    const outline = new THREE.LineSegments(edges, outlineMaterial);
+                    outline.position.copy(hex.position);
+                    outline.rotation.copy(hex.rotation);
+                    scene.add(outline);
+                }
+            }
+        }
+
+        // Function to apply wood floor material to tavern hexes
+        function applyTavernFloor() {
+            hexes.forEach(hex => {
+                const { r, c } = hex.userData.gridCoords;
+                if (r >= tavernMinR && r <= tavernMaxR && c >= tavernMinC && c <= tavernMaxC) {
+                    hex.material = woodFloorHexMaterial;
+                    hex.userData.originalMaterial = woodFloorHexMaterial; // Update original material
+                }
+            });
+        }
+
+        function createTavernWalls() {
+            const wallHeightActual = hexHeight + wallHeight; // Walls should be taller than the hexes
+
+            // Calculate the outer bounds of the tavern hex zone for wall placement
+            let minX = Infinity, maxX = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
+
+            for (let r = tavernMinR; r <= tavernMaxR; r++) {
+                for (let c = tavernMinC; c <= tavernMaxC; c++) {
+                    const hexPos = getHexWorldPosition(r, c);
+                    minX = Math.min(minX, hexPos.x);
+                    maxX = Math.max(maxX, hexPos.x);
+                    minZ = Math.min(minZ, hexPos.z);
+                    maxZ = Math.max(maxZ, hexPos.z);
+                }
+            }
+
+            // Adjust bounds by half a hex for the outermost edges
+            minX -= hexSize;
+            maxX += hexSize;
+            minZ -= hexSize;
+            maxZ += hexSize;
+
+            const centerX = (minX + maxX) / 2;
+            const centerZ = (minZ + maxZ) / 2;
+            const lengthX = maxX - minX + wallThickness * 2;
+            const lengthZ = maxZ - minZ + wallThickness * 2;
+
+            // Back Wall (-Z)
+            const backWallGeometry = new THREE.BoxGeometry(lengthX, wallHeightActual, wallThickness);
+            const backWall = new THREE.Mesh(backWallGeometry, wallMaterial);
+            backWall.position.set(centerX, wallHeightActual / 2 + hexHeight / 2, minZ - wallThickness / 2);
+            scene.add(backWall);
+
+            // Front Wall (+Z) - Now split for a door
+            const frontWallZ = maxZ + wallThickness / 2;
+            const remainingFrontWallLength = lengthX - doorWidth;
+            const halfRemainingLength = remainingFrontWallLength / 2;
+
+            // Left segment of front wall
+            const frontWallLeftGeometry = new THREE.BoxGeometry(halfRemainingLength, wallHeightActual, wallThickness);
+            const frontWallLeft = new THREE.Mesh(frontWallLeftGeometry, wallMaterial);
+            frontWallLeft.position.set(centerX - doorWidth / 2 - halfRemainingLength / 2, wallHeightActual / 2 + hexHeight / 2, frontWallZ);
+            scene.add(frontWallLeft);
+
+            // Right segment of front wall
+            const frontWallRightGeometry = new THREE.BoxGeometry(halfRemainingLength, wallHeightActual, wallThickness);
+            const frontWallRight = new THREE.Mesh(frontWallRightGeometry, wallMaterial);
+            frontWallRight.position.set(centerX + doorWidth / 2 + halfRemainingLength / 2, wallHeightActual / 2 + hexHeight / 2, frontWallZ);
+            scene.add(frontWallRight);
+
+            // Left Wall (-X)
+            const leftWallGeometry = new THREE.BoxGeometry(wallThickness, wallHeightActual, lengthZ);
+            const leftWall = new THREE.Mesh(leftWallGeometry, wallMaterial);
+            leftWall.position.set(minX - wallThickness / 2, wallHeightActual / 2 + hexHeight / 2, centerZ);
+            scene.add(leftWall);
+
+            // Right Wall (+X)
+            const rightWallGeometry = new THREE.BoxGeometry(wallThickness, wallHeightActual, lengthZ);
+            const rightWall = new THREE.Mesh(rightWallGeometry, wallMaterial);
+            rightWall.position.set(maxX + wallThickness / 2, wallHeightActual / 2 + hexHeight / 2, centerZ);
+            scene.add(rightWall);
+
+            // Add a point light inside the tavern area for better visibility
+            const tavernLight = new THREE.PointLight(0xffddaa, 1.5, 30); // Warm light
+            tavernLight.position.set(centerX, wallHeightActual - 2, centerZ);
+            scene.add(tavernLight);
+        }
+
+        function createDoor() {
+            // Calculate tavern bounds again to get the front wall position
+            let minX = Infinity, maxX = -Infinity;
+            let maxZ = -Infinity;
+            for (let r = tavernMinR; r <= tavernMaxR; r++) {
+                for (let c = tavernMinC; c <= tavernMaxC; c++) {
+                    const hexPos = getHexWorldPosition(r, c);
+                    minX = Math.min(minX, hexPos.x);
+                    maxX = Math.max(maxX, hexPos.x);
+                    maxZ = Math.max(maxZ, hexPos.z);
+                }
+            }
+            maxZ += hexSize; // Account for the outer edge of hexes
+            const frontWallZ = maxZ + wallThickness / 2;
+            const centerX = (minX + maxX) / 2;
+
+            const doorGeometry = new THREE.PlaneGeometry(doorWidth, doorHeight);
+            const door = new THREE.Mesh(doorGeometry, doorMaterial);
+            door.rotation.y = Math.PI; // Face outwards
+            door.position.set(centerX, doorHeight / 2 + hexHeight / 2, frontWallZ - wallThickness / 2 + 0.01); // Position at the opening
+            scene.add(door);
+        }
+
+        function createBarrels() {
+            const barrelRadius = hexSize * 0.3;
+            const barrelHeight = hexHeight * 2;
+            const barrelSegments = 16;
+
+            // Barrel body geometry (cylinder with open ends)
+            const barrelBodyGeometry = new THREE.CylinderGeometry(barrelRadius, barrelRadius, barrelHeight, barrelSegments, 1, true);
+            const barrelBodyMaterial = new THREE.MeshStandardMaterial({ map: woodFloorTexture }); // Floor texture for body
+
+            // Barrel lid geometry (circle)
+            const barrelLidGeometry = new THREE.CircleGeometry(barrelRadius, barrelSegments);
+            const barrelLidMaterial = new THREE.MeshStandardMaterial({ map: woodWallTexture }); // Wall texture for lids
+
+            const barrelPositions = [
+                { r: tavernMinR + 1, c: tavernMinC + 1 },
+                { r: tavernMaxR - 1, c: tavernMaxC - 1 }
+            ];
+
+            barrelPositions.forEach(coords => {
+                const { position: hexPosition } = getClosestHexCenter(getHexWorldPosition(coords.r, coords.c));
+                if (hexPosition) {
+                    const barrelGroup = new THREE.Group();
+
+                    // Barrel body
+                    const body = new THREE.Mesh(barrelBodyGeometry, barrelBodyMaterial);
+                    barrelGroup.add(body);
+
+                    // Top lid
+                    const topLid = new THREE.Mesh(barrelLidGeometry, barrelLidMaterial);
+                    topLid.rotation.x = -Math.PI / 2;
+                    topLid.position.y = barrelHeight / 2;
+                    barrelGroup.add(topLid);
+
+                    // Bottom lid
+                    const bottomLid = new THREE.Mesh(barrelLidGeometry, barrelLidMaterial);
+                    bottomLid.rotation.x = Math.PI / 2;
+                    bottomLid.position.y = -barrelHeight / 2;
+                    barrelGroup.add(bottomLid);
+
+                    barrelGroup.position.set(hexPosition.x, hexPosition.y + hexHeight / 2 + barrelHeight / 2, hexPosition.z);
+                    scene.add(barrelGroup);
+                }
+            });
+            showMessage(`Added ${barrelPositions.length} barrels inside the tavern.`);
+        }
+
+
+        // Returns the world position of a hex at specific grid coordinates (r, c)
+        function getHexWorldPosition(r, c) {
+            // Find the actual hex mesh from the hexes array
+            const targetHex = hexes.find(h => h.userData.gridCoords.r === r && h.userData.gridCoords.c === c);
+            if (targetHex) {
+                // Return its actual world position (including its Y-offset)
+                return targetHex.position.clone(); 
+            }
+            // Fallback to flat position if hex not found (shouldn't happen with proper grid generation)
+            const offset = hexSize * 1.73205;
+            const rowOffset = hexSize * 1.5;
+            const gridOriginX = -(gridSize * offset) / 2 + offset / 4;
+            const gridOriginZ = -(gridSize * rowOffset) / 2 + rowOffset / 2;
+            const x = c * offset + (r % 2) * (offset / 2) + gridOriginX;
+            const z = r * rowOffset + gridOriginZ;
+            return new THREE.Vector3(x, hexHeight / 2, z); // Default to base height
+        }
+
+        // Returns an object containing the closest hex's world position and its grid coordinates
+        function getClosestHexCenter(worldPosition) {
+            let closestHexPosition = null;
+            let minDistance = Infinity;
+            let closestHexCoords = null;
+            let closestHex = null; // Also return the hex object
+
+            hexes.forEach(hex => {
+                const hexCenter = hex.position.clone(); // Use the actual hex position (including Y)
+                
+                // For distance calculation, project to XZ plane to find the "closest" hex
+                const distance = new THREE.Vector3(hexCenter.x, 0, hexCenter.z).distanceTo(new THREE.Vector3(worldPosition.x, 0, worldPosition.z));
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestHexPosition = hexCenter; // Return the actual 3D position of the hex
+                    closestHexCoords = hex.userData.gridCoords;
+                    closestHex = hex;
+                }
+            });
+            return { position: closestHexPosition, coords: closestHexCoords, hex: closestHex };
+        }
+
+        // Function to create a placeholder mini from basic geometries
+        function createBasicMini(id, initialGridCoords, geometry, color) {
+            const material = new THREE.MeshStandardMaterial({ color: color, metalness: 0.5, roughness: 0.5 });
+            const mini = new THREE.Mesh(geometry, material);
+            mini.userData.draggable = true;
+            mini.userData.id = id;
+            mini.userData.gridCoords = initialGridCoords; // Set initial grid coords
+
+            // Get the actual Y position of the target hex
+            const { position: targetHexPosition, hex: targetHex } = getClosestHexCenter(getHexWorldPosition(initialGridCoords.r, initialGridCoords.c));
+            
+            if (targetHexPosition && targetHex) {
+                let miniHeightOffset = 0;
+                if (geometry.parameters.height) { // For Box and Cylinder
+                    miniHeightOffset = geometry.parameters.height / 2;
+                } else if (geometry.parameters.radius) { // For Sphere
+                    miniHeightOffset = geometry.parameters.radius;
+                }
+                mini.position.set(targetHexPosition.x, targetHexPosition.y + hexHeight / 2 + miniHeightOffset, targetHexPosition.z);
+                
+                // Set the material of the initial hex to wood, or sidewalk depending on its location
+                const { r, c } = initialGridCoords;
+                if (r >= tavernMinR && r <= tavernMaxR && c >= tavernMinC && c <= tavernMaxC) {
+                    targetHex.material = woodFloorHexMaterial;
+                } else {
+                    targetHex.material = sidewalkMaterial;
+                }
+            } else {
+                // Fallback if hex not found
+                mini.position.set(0, hexHeight / 2 + 0.5, 0); 
+                showMessage(`Warning: Initial hex for ${id} not found, placing at origin.`);
+            }
+            
+            scene.add(mini);
+            console.log(`Created basic mini ${id}.`);
+            return mini;
+        }
+
+        // New function to create a humanoid-like mini from basic geometries
+        function createHumanoidMini(id, initialGridCoords, color) {
+            const miniGroup = new THREE.Group();
+            miniGroup.userData.draggable = true;
+            miniGroup.userData.id = id;
+            miniGroup.userData.gridCoords = initialGridCoords;
+
+            const bodyHeight = hexHeight * 2.5; // Taller body
+            const bodyRadius = hexSize * 0.4;
+            const headRadius = hexSize * 0.25;
+
+            // Body (cylinder)
+            const bodyGeometry = new THREE.CylinderGeometry(bodyRadius * 0.8, bodyRadius, bodyHeight, 16); // Slightly tapered body
+            const bodyMaterial = new THREE.MeshStandardMaterial({ color: color, metalness: 0.5, roughness: 0.5 });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = bodyHeight / 2; // Position body so its base is at Y=0 within the group
+            miniGroup.add(body);
+
+            // Head (sphere)
+            const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffe0bd, metalness: 0.3, roughness: 0.7 }); // Skin tone
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = bodyHeight + headRadius; // Position head on top of the body
+            miniGroup.add(head);
+
+            // Get the actual Y position of the target hex
+            const { position: targetHexPosition, hex: targetHex } = getClosestHexCenter(getHexWorldPosition(initialGridCoords.r, initialGridCoords.c));
+
+            if (targetHexPosition && targetHex) {
+                // Position the entire group so its base (Y=0 of the group) is on the hex surface
+                miniGroup.position.set(targetHexPosition.x, targetHexPosition.y + hexHeight / 2, targetHexPosition.z);
+                // Set the material of the initial hex to wood, or sidewalk depending on its location
+                const { r, c } = initialGridCoords;
+                if (r >= tavernMinR && r <= tavernMaxR && c >= tavernMinC && c <= tavernMaxC) {
+                    targetHex.material = woodFloorHexMaterial;
+                } else {
+                    targetHex.material = sidewalkMaterial;
+                }
+            } else {
+                // Fallback if hex not found
+                miniGroup.position.set(0, hexHeight / 2, 0);
+                showMessage(`Warning: Initial hex for ${id} not found, placing at origin.`);
+            }
+
+            scene.add(miniGroup);
+            console.log(`Created humanoid mini ${id}.`);
+            return miniGroup;
+        }
+
+        // --- NEW: Advanced Humanoid Mini with more details (e.g., armor, shield) ---
+        function createAdvancedHumanoidMini(id, initialGridCoords, bodyColor, armorColor, weaponColor) {
+            const miniGroup = new THREE.Group();
+            miniGroup.userData.draggable = true;
+            miniGroup.userData.id = id;
+            miniGroup.userData.gridCoords = initialGridCoords;
+
+            const scaleFactor = 0.9; // Slightly smaller to fit hex better
+            const bodyHeight = hexHeight * 2.8 * scaleFactor;
+            const bodyRadius = hexSize * 0.35 * scaleFactor;
+            const headRadius = hexSize * 0.22 * scaleFactor;
+            const armRadius = hexSize * 0.15 * scaleFactor;
+            const legHeight = hexHeight * 1.4 * scaleFactor;
+
+            const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffe0bd, metalness: 0.2, roughness: 0.8 });
+            const armorMaterial = new THREE.MeshStandardMaterial({ color: armorColor, metalness: 0.7, roughness: 0.3 });
+            const weaponMaterial = new THREE.MeshStandardMaterial({ color: weaponColor, metalness: 0.8, roughness: 0.4 });
+
+            // Body (torso - box for more defined shape)
+            const torsoGeometry = new THREE.BoxGeometry(bodyRadius * 1.5, bodyHeight * 0.6, bodyRadius);
+            const torso = new THREE.Mesh(torsoGeometry, armorMaterial);
+            torso.position.y = bodyHeight * 0.7; // Place upper body
+            miniGroup.add(torso);
+
+            // Hips (smaller box)
+            const hipsGeometry = new THREE.BoxGeometry(bodyRadius * 1.2, bodyHeight * 0.2, bodyRadius);
+            const hips = new THREE.Mesh(hipsGeometry, armorMaterial);
+            hips.position.y = bodyHeight * 0.3; // Below torso
+            miniGroup.add(hips);
+
+            // Head (sphere with helmet)
+            const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
+            const head = new THREE.Mesh(headGeometry, skinMaterial);
+            head.position.y = bodyHeight + headRadius * 0.8;
+            miniGroup.add(head);
+
+            // Helmet (simple cap over head)
+            const helmetGeometry = new THREE.CylinderGeometry(headRadius * 1.1, headRadius * 1.1, headRadius * 1.2, 16);
+            const helmet = new THREE.Mesh(helmetGeometry, armorMaterial);
+            helmet.position.y = head.position.y + headRadius * 0.2;
+            miniGroup.add(helmet);
+
+            // Left Arm
+            const leftArmGeometry = new THREE.CylinderGeometry(armRadius, armRadius, bodyHeight * 0.4, 8);
+            const leftArm = new THREE.Mesh(leftArmGeometry, armorMaterial);
+            leftArm.position.set(bodyRadius + armRadius * 0.5, bodyHeight * 0.7, 0);
+            miniGroup.add(leftArm);
+
+            // Right Arm
+            const rightArmGeometry = new THREE.CylinderGeometry(armRadius, armRadius, bodyHeight * 0.4, 8);
+            const rightArm = new THREE.Mesh(rightArmGeometry, armorMaterial);
+            rightArm.position.set(-(bodyRadius + armRadius * 0.5), bodyHeight * 0.7, 0);
+            miniGroup.add(rightArm);
+
+            // Left Leg
+            const leftLegGeometry = new THREE.CylinderGeometry(armRadius * 0.8, armRadius * 0.8, legHeight, 8);
+            const leftLeg = new THREE.Mesh(leftLegGeometry, armorMaterial);
+            leftLeg.position.set(bodyRadius * 0.4, legHeight / 2, 0);
+            miniGroup.add(leftLeg);
+
+            // Right Leg
+            const rightLegGeometry = new THREE.CylinderGeometry(armRadius * 0.8, armRadius * 0.8, legHeight, 8);
+            const rightLeg = new THREE.Mesh(rightLegGeometry, armorMaterial);
+            rightLeg.position.set(-bodyRadius * 0.4, legHeight / 2, 0);
+            miniGroup.add(rightLeg);
+
+            // Shield (simple box)
+            const shieldGeometry = new THREE.BoxGeometry(hexSize * 0.6 * scaleFactor, hexSize * 0.8 * scaleFactor, hexSize * 0.1 * scaleFactor);
+            const shield = new THREE.Mesh(shieldGeometry, weaponMaterial);
+            shield.position.set(bodyRadius + armRadius * 1.5, bodyHeight * 0.7, hexSize * 0.3 * scaleFactor); // Position near left arm, slightly forward
+            shield.rotation.y = -Math.PI / 8; // Slight angle
+            miniGroup.add(shield);
+
+            // Sword (simple blade and hilt)
+            const swordBladeGeometry = new THREE.BoxGeometry(hexSize * 0.1 * scaleFactor, hexSize * 1.2 * scaleFactor, hexSize * 0.05 * scaleFactor);
+            const swordBlade = new THREE.Mesh(swordBladeGeometry, weaponMaterial);
+            swordBlade.position.y = hexSize * 0.6 * scaleFactor;
+
+            const swordHiltGeometry = new THREE.BoxGeometry(hexSize * 0.2 * scaleFactor, hexSize * 0.2 * scaleFactor, hexSize * 0.1 * scaleFactor);
+            const swordHilt = new THREE.Mesh(swordHiltGeometry, weaponMaterial);
+            swordHilt.position.y = hexSize * 0.05 * scaleFactor;
+
+            const swordGroup = new THREE.Group();
+            swordGroup.add(swordBlade);
+            swordGroup.add(swordHilt);
+            swordGroup.position.set(-(bodyRadius + armRadius * 1.5), bodyHeight * 0.7, hexSize * 0.3 * scaleFactor); // Position near right arm, slightly forward
+            swordGroup.rotation.z = Math.PI / 4; // Angle it slightly
+            miniGroup.add(swordGroup);
+
+            // Get the actual Y position of the target hex
+            const { position: targetHexPosition, hex: targetHex } = getClosestHexCenter(getHexWorldPosition(initialGridCoords.r, initialGridCoords.c));
+
+            if (targetHexPosition && targetHex) {
+                miniGroup.position.set(targetHexPosition.x, targetHexPosition.y + hexHeight / 2, targetHexPosition.z);
+                const { r, c } = initialGridCoords;
+                if (r >= tavernMinR && r <= tavernMaxR && c >= tavernMinC && c <= tavernMaxC) {
+                    targetHex.material = woodFloorHexMaterial;
+                } else {
+                    targetHex.material = sidewalkMaterial;
+                }
+            } else {
+                miniGroup.position.set(0, hexHeight / 2, 0);
+                showMessage(`Warning: Initial hex for ${id} not found, placing at origin.`);
+            }
+
+            scene.add(miniGroup);
+            console.log(`Created advanced humanoid mini ${id}.`);
+            return miniGroup;
+        }
+
+        function loadMinis() {
+            // Mini 1 (Box Geometry)
+            const initialGridCoords1 = { r: 0, c: 0 };
+            const mini1Geometry = new THREE.BoxGeometry(hexSize * 0.8, hexHeight + 0.5, hexSize * 0.8);
+            const mini1 = createBasicMini('mini-1', initialGridCoords1, mini1Geometry, 0x8a2be2); // BlueViolet color
+            draggableObjects.push(mini1);
+            miniObjects[mini1.userData.id] = mini1;
+
+            // Mini 2 (Cylinder Geometry)
+            const initialGridCoords2 = { r: 2, c: 2 };
+            const mini2Geometry = new THREE.CylinderGeometry(hexSize * 0.4, hexSize * 0.4, hexHeight + 0.8, 16);
+            const mini2 = createBasicMini('mini-2', initialGridCoords2, mini2Geometry, 0xcccccc); // Light gray color
+            draggableObjects.push(mini2);
+            miniObjects[mini2.userData.id] = mini2;
+
+            // Mini 3 (Sphere) - Already a basic geometry
+            const initialGridCoords3 = { r: 5, c: 5 };
+            const mini3Geometry = new THREE.SphereGeometry(hexSize * 0.4, 16, 16);
+            const mini3 = createBasicMini('mini-3', initialGridCoords3, mini3Geometry, 0x00ff00); // Green color
+            draggableObjects.push(mini3);
+            miniObjects[mini3.userData.id] = mini3;
+
+            // Mini 4 (Procedural Humanoid-like)
+            const initialGridCoords4 = { r: 7, c: 7 };
+            const mini4 = createHumanoidMini('mini-4', initialGridCoords4, 0x008080); // Teal color
+            draggableObjects.push(mini4);
+            miniObjects[mini4.userData.id] = mini4;
+
+            // NEW: Mini 5 (Advanced Procedural Humanoid-like Knight)
+            const initialGridCoords5 = { r: 1, c: 8 };
+            const mini5 = createAdvancedHumanoidMini('mini-5', initialGridCoords5, 0x333333, 0x888888, 0xaaaaaa); // Dark Grey body, Silver armor, Light Silver weapon
+            draggableObjects.push(mini5);
+            miniObjects[mini5.userData.id] = mini5;
+
+
+            console.log('All minis loaded and added to draggableObjects and miniObjects:', draggableObjects, miniObjects);
+            showMessage('All minis loaded!');
+        }
+
+
+        // --- Interaction Handlers ---
+
+        function onPointerDown(event) {
+            // Check if pointerdown is on a UI element, if so, prevent camera controls
+            if (event.target.closest('#command-panel, #spell-button-panel, #actor-target-panel')) {
+                controls.enabled = false;
+                return;
+            } else {
+                controls.enabled = true; // Ensure controls are enabled if clicking on canvas
+            }
+
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Check for intersections with any draggable object
+            const intersects = raycaster.intersectObjects(draggableObjects, true);
+
+            if (intersects.length > 0) {
+                // Find the direct parent that is a draggable mini (could be Mesh or Group)
+                let targetMini = intersects[0].object;
+                while (targetMini && !targetMini.userData.draggable) {
+                    targetMini = targetMini.parent;
+                }
+
+                if (targetMini && targetMini.userData.draggable) {
+                    currentlyDragging = targetMini;
+                    controls.enabled = false; // Disable OrbitControls during drag
+                    renderer.domElement.style.cursor = 'grabbing';
+
+                    // Store the mini's previous hex coordinates before drag starts
+                    currentlyDragging.userData.previousGridCoords = { ...currentlyDragging.userData.gridCoords };
+
+                    // Calculate the offset from the click point to the mini's center
+                    const intersectionPoint = new THREE.Vector3();
+                    // Intersect with a plane at the mini's current Y position for a consistent drag
+                    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -currentlyDragging.position.y);
+                    raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
+                    currentlyDragging.userData.dragOffset = new THREE.Vector3().subVectors(intersectionPoint, currentlyDragging.position);
+                }
+            } else {
+                renderer.domElement.style.cursor = 'grab';
+            }
+        }
+
+        function onPointerMove(event) {
+             // If a UI element is being interacted with, prevent further processing for scene interaction
+            if (event.target.closest('#command-panel, #spell-button-panel, #actor-target-panel')) {
+                return;
+            }
+
+            if (currentlyDragging) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+
+                const intersection = new THREE.Vector3();
+                // Intersect with a plane at the mini's current Y position for a consistent drag
+                const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -currentlyDragging.position.y);
+                if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
+                    // Apply the stored offset to maintain relative grab point
+                    const newPosition = intersection.sub(currentlyDragging.userData.dragOffset);
+                    currentlyDragging.position.x = newPosition.x;
+                    currentlyDragging.position.z = newPosition.z;
+                    // Y position is handled by snapping to hex, so don't update it during drag
+                }
+            } else {
+                // Change cursor to pointer if hovering over a draggable object
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(draggableObjects, true);
+                if (intersects.length > 0) {
+                     let hoveredMini = intersects[0].object;
+                     while (hoveredMini && !hoveredMini.userData.draggable) {
+                         hoveredMini = hoveredMini.parent;
+                     }
+                     if (hoveredMini && hoveredMini.userData.draggable) {
+                        renderer.domElement.style.cursor = 'pointer';
+                     } else {
+                        renderer.domElement.style.cursor = 'grab';
+                     }
+                } else {
+                    renderer.domElement.style.cursor = 'grab';
+                }
+            }
+        }
+
+        function onPointerUp(event) {
+            // Check if pointerup happened on a UI element, if so, just re-enable controls and return
+            if (event.target.closest('#command-panel, #spell-button-panel, #actor-target-panel')) {
+                controls.enabled = true;
+                return;
+            }
+
+            if (currentlyDragging) {
+                controls.enabled = true; // Re-enable OrbitControls
+                renderer.domElement.style.cursor = 'grab';
+
+                const previousCoords = currentlyDragging.userData.previousGridCoords; 
+                const previousHex = hexes.find(h => h.userData.gridCoords.r === previousCoords.r && h.userData.gridCoords.c === previousCoords.c);
+                if (previousHex) {
+                    previousHex.material = previousHex.userData.originalMaterial; // Revert previous hex material
+                }
+
+
+                // Snap to closest hex
+                const { position: snappedPosition, coords: newCoords, hex: newHex } = getClosestHexCenter(currentlyDragging.position);
+                if (snappedPosition && newHex) {
+                    currentlyDragging.position.x = snappedPosition.x;
+                    currentlyDragging.position.z = snappedPosition.z;
+                    // Update Y position to match the snapped hex's height
+                    
+                    let miniHeightOffset = 0;
+                    // Check if the mini is a basic mesh or a group (like humanoid minis)
+                    if (currentlyDragging.isMesh && currentlyDragging.geometry.parameters) { // Basic mini
+                        const geomParams = currentlyDragging.geometry.parameters;
+                        if (geomParams.height) { miniHeightOffset = geomParams.height / 2; }
+                        else if (geomParams.radius) { miniHeightOffset = geomParams.radius; }
+                        currentlyDragging.position.y = snappedPosition.y + hexHeight / 2 + miniHeightOffset;
+                    } else if (currentlyDragging.isGroup) { // Humanoid mini (group's origin is at its feet)
+                         currentlyDragging.position.y = snappedPosition.y + hexHeight / 2;
+                    }
+                    currentlyDragging.userData.gridCoords = newCoords; // Update mini's grid coords
+                    
+                    // Determine new hex material based on location
+                    const { r, c } = newCoords;
+                    if (r >= tavernMinR && r <= tavernMaxR && c >= tavernMinC && c <= tavernMaxC) {
+                        newHex.material = woodFloorHexMaterial;
+                    } else {
+                        newHex.material = sidewalkMaterial;
+                    }
+                    newHex.userData.originalMaterial = newHex.material; // Update original material for the new hex
+
+                    showMessage(`Mini ${currentlyDragging.userData.id} moved to (R:${newCoords.r}, C:${newCoords.c})!`);
+                }
+                
+                // If a mini was just dragged/clicked, set it as the current target
+                currentTargetId = currentlyDragging.userData.id;
+                updateUI();
+                delete currentlyDragging.userData.previousGridCoords; // Delete before setting to null
+                currentlyDragging = null; // Set to null after all operations
+            } else {
+                // If no drag happened, but a mini was clicked, set it as target
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(draggableObjects, true);
+
+                if (intersects.length > 0) {
+                    let clickedMini = intersects[0].object;
+                    while (clickedMini && !clickedMini.userData.draggable) {
+                        clickedMini = clickedMini.parent;
+                    }
+                    if (clickedMini && clickedMini.userData.draggable) {
+                        currentTargetId = clickedMini.userData.id;
+                        updateUI();
+                        showMessage(`Target set to ${currentTargetId}!`);
+                    }
+                }
+            }
+        }
+
+        // --- Spell Button Handler ---
+        function castSpellButton(spellName) {
+            if (!currentActorId) {
+                showMessage('No active actor selected!');
+                return;
+            }
+
+            let command;
+            if (spellName === 'sword swing') {
+                command = `swing sword`;
+            } else {
+                if (!currentTargetId) {
+                    showMessage('No target mini selected! Click on a mini to target it.');
+                    return;
+                }
+                // Construct command string for the existing onExecuteCommand parser
+                command = `cast ${spellName} at ${currentTargetId}`;
+            }
+            onExecuteCommand(command);
+        }
+
+        // --- Command Execution Handler ---
+        function onExecuteCommand(commandFromButton = null) {
+            const commandText = commandFromButton || commandInput.value.toLowerCase().trim();
+            commandInput.value = ''; // Clear input if it was typed
+
+            // --- Move Command ---
+            let moveParts = commandText.match(/move (\d+) (right|left|up|down)/);
+            if (moveParts) {
+                const distance = parseInt(moveParts[1], 10);
+                const direction = moveParts[2];
+
+                const targetMini = miniObjects['mini-1']; // Always target mini-1 for movement per instructions
+
+                if (!targetMini) {
+                    showMessage('Source mini "mini-1" not found. It might still be loading.');
+                    return;
+                }
+
+                const previousCoords = { ...targetMini.userData.gridCoords }; // Store previous coords
+                const previousHex = hexes.find(h => h.userData.gridCoords.r === previousCoords.r && h.userData.gridCoords.c === previousCoords.c);
+                if (previousHex) {
+                    previousHex.material = previousHex.userData.originalMaterial; // Revert previous hex material
+                }
+
+                let { r, c } = targetMini.userData.gridCoords;
+                let newR = r;
+                let newC = c;
+
+                // Adjust for hex grid movement (axial coordinates or cube coordinates are more robust, but this is simple for cardinal)
+                switch (direction) {
+                    case 'right':
+                        newC += distance;
+                        break;
+                    case 'left':
+                        newC -= distance;
+                        break;
+                    case 'up': // "Up" on screen / forward (decreasing row index for hex grids)
+                        newR -= distance;
+                        break;
+                    case 'down': // "Down" on screen / backward (increasing row index)
+                        newR += distance;
+                        break;
+                }
+
+                // Clamp new coordinates within grid bounds
+                newR = Math.max(0, Math.min(gridSize - 1, newR));
+                newC = Math.max(0, Math.min(gridSize - 1, newC));
+
+                if (newR === r && newC === c) {
+                    showMessage(`Mini ${targetMini.userData.id} is already at its target position or command is out of bounds.`);
+                     // If no move, ensure the current hex material remains correct
+                    const currentHex = hexes.find(h => h.userData.gridCoords.r === r && h.userData.gridCoords.c === c);
+                    if (currentHex) {
+                        currentHex.material = currentHex.userData.originalMaterial;
+                    }
+                    return;
+                }
+
+                const { position: targetHexPosition, hex: newHex } = getClosestHexCenter(getHexWorldPosition(newR, newC)); // Get the 3D position of the target hex
+                if (targetHexPosition && newHex) {
+                    targetMini.position.x = targetHexPosition.x;
+                    targetMini.position.z = targetHexPosition.z;
+                    // Adjust Y position based on mini type (basic or humanoid group)
+                    let miniHeightOffset = 0;
+                    if (targetMini.isMesh && targetMini.geometry.parameters) { // Basic mini
+                        const geomParams = targetMini.geometry.parameters;
+                        if (geomParams.height) { miniHeightOffset = geomParams.height / 2; }
+                        else if (geomParams.radius) { miniHeightOffset = geomParams.radius; }
+                        targetMini.position.y = targetHexPosition.y + hexHeight / 2 + miniHeightOffset;
+                    } else if (targetMini.isGroup) { // Humanoid mini (group's origin is at its feet)
+                         targetMini.position.y = targetHexPosition.y + hexHeight / 2;
+                    }
+
+                    targetMini.userData.gridCoords = { r: newR, c: newC }; // Update grid coordinates
+                    
+                    // Determine new hex material based on location
+                    const { r: newHexR, c: newHexC } = newCoords;
+                    if (newHexR >= tavernMinR && newHexR <= tavernMaxR && newHexC >= tavernMinC && newHexC <= tavernMaxC) {
+                        newHex.material = woodFloorHexMaterial;
+                    } else {
+                        newHex.material = sidewalkMaterial;
+                    }
+                    newHex.userData.originalMaterial = newHex.material; // Update original material for the new hex
+
+                    showMessage(`Moved mini-1 ${distance} hexes ${direction} to (R:${newR}, C:${newC})!`);
+                } else {
+                    showMessage(`Could not find target hex for move command.`);
+                }
+                return;
+            }
+
+            // --- Sword Swing Command ---
+            if (commandText === 'swing sword') {
+                const sourceMini = miniObjects[currentActorId];
+                if (!sourceMini) { showMessage(`Active mini "${currentActorId}" not found for sword swing.`); return; }
+                if (swordSwingActive) { showMessage('A sword is already swinging! Please wait.'); return; }
+
+                // Clear old group if exists
+                if (swordSwingGroup) {
+                    scene.remove(swordSwingGroup);
+                    swordSwingGroup.children.forEach(child => {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) child.material.dispose();
+                    });
+                    swordSwingGroup = null;
+                }
+
+                // Create sword blade
+                const bladeGeometry = new THREE.BoxGeometry(swordWidth, swordLength, 0.2); // Thin blade
+                const bladeMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.3 });
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                blade.position.y = swordLength / 2; // Position blade above its pivot point
+
+                // Create sword hilt
+                const hiltGeometry = new THREE.CylinderGeometry(swordWidth * 0.4, swordWidth * 0.4, swordWidth * 0.8, 8);
+                const hiltMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, metalness: 0.5, roughness: 0.5 }); // Wooden hilt
+                const hilt = new THREE.Mesh(hiltGeometry, hiltMaterial);
+                hilt.position.y = -0.5; // Position hilt below blade
+
+                swordSwingGroup = new THREE.Group();
+                swordSwingGroup.add(blade);
+                swordSwingGroup.add(hilt);
+                
+                // Position the group relative to the actor
+                swordSwingGroup.position.copy(sourceMini.position);
+                // Adjust Y position for sword based on mini type
+                if (sourceMini.isMesh && sourceMini.geometry.parameters) { // Basic mini
+                     const geomParams = sourceMini.geometry.parameters;
+                     let miniHeight = geomParams.height || (geomParams.radius * 2);
+                     swordSwingGroup.position.y = sourceMini.position.y - miniHeight / 2 + (hexHeight + 0.5); // At "waist" height
+                } else if (sourceMini.isGroup) { // Humanoid mini (group's origin is at its feet)
+                     swordSwingGroup.position.y = sourceMini.position.y + hexHeight * 1.5; // At "waist" height
+                }
+                swordSwingGroup.rotation.y = sourceMini.rotation.y; // Match mini's orientation initially
+                swordSwingGroup.rotation.z = Math.PI / 2; // Orient sword horizontally
+
+                scene.add(swordSwingGroup);
+                swordSwingActive = true;
+                swordSwingProgress = 0;
+                showMessage(`Mini "${currentActorId}" swings their sword!`);
+                return;
+            }
+
+
+            // --- Spell Commands (Firebolt, Lightning, Magic Missile, Fireball) ---
+            let spellParts = commandText.match(/cast (firebolt|lightning|magic missile|fireball) at (mini-\d+)/);
+            if (spellParts) {
+                const spellName = spellParts[1];
+                const targetMiniId = spellParts[2]; // Target specified in text command
+
+                const sourceMini = miniObjects[currentActorId]; // Source is always the currentActor
+                const targetMini = miniObjects[targetMiniId];
+
+                if (!sourceMini) { showMessage(`Source mini "${currentActorId}" not found.`); return; }
+                if (!targetMini) { showMessage(`Target mini "${targetMiniId}" not found.`); return; }
+
+                switch (spellName) {
+                    case 'firebolt':
+                        if (fireboltActive) { showMessage('A firebolt is already in flight! Please wait.'); return; }
+                        fireboltStartPosition.copy(sourceMini.position);
+                        fireboltTargetPosition.copy(targetMini.position);
+                        
+                        // Clear old group if exists
+                        if (fireboltGroup) {
+                            scene.remove(fireboltGroup);
+                            fireboltGroup.children.forEach(child => {
+                                if (child.geometry) child.geometry.dispose();
+                                if (child.material) child.material.dispose();
+                            });
+                            fireboltGroup = null;
+                        }
+                        
+                        const fireboltCoreGeometry = new THREE.SphereGeometry(0.8, 8, 8);
+                        const fireboltCoreMaterial = new THREE.MeshStandardMaterial({ color: 0xff4500, emissive: 0xff4500, emissiveIntensity: 1.5 });
+                        const fireboltCore = new THREE.Mesh(fireboltCoreGeometry, fireboltCoreMaterial);
+                        
+                        fireboltLight = new THREE.PointLight(0xffa500, 1.5, 20);
+                        fireboltLight.position.set(0, 0, 0);
+
+                        fireboltGroup = new THREE.Group();
+                        fireboltGroup.add(fireboltCore);
+                        fireboltGroup.add(fireboltLight);
+                        fireboltGroup.position.copy(fireboltStartPosition);
+                        scene.add(fireboltGroup);
+
+                        fireboltParticles = [];
+                        fireboltActive = true;
+                        fireboltProgress = 0;
+                        showMessage(`Casting Firebolt from ${currentActorId} to ${targetMiniId}!`);
+                        break;
+
+                    case 'lightning':
+                        if (lightningActive) { showMessage('A lightning bolt is active! Please wait.'); return; }
+
+                        // Clear old group if exists
+                        if (lightningGroup) {
+                            scene.remove(lightningGroup);
+                            if (lightningGroup.geometry) lightningGroup.geometry.dispose();
+                            if (lightningGroup.material) lightningGroup.material.dispose();
+                            lightningGroup = null;
+                        }
+                         if (fireboltLight) { // Remove previous spell's light if any
+                            scene.remove(fireboltLight);
+                            if (fireboltLight.dispose) fireboltLight.dispose();
+                            fireboltLight = null;
+                        }
+
+                        // Create lightning effect
+                        const numSegments = 5;
+                        const lightningStart = sourceMini.position.clone();
+                        const lightningEnd = targetMini.position.clone();
+                        lightningPoints = [];
+                        lightningPoints.push(lightningStart);
+
+                        for (let i = 1; i < numSegments; i++) {
+                            const t = i / numSegments;
+                            const point = new THREE.Vector3().lerpVectors(lightningStart, lightningEnd, t);
+                            // Add random displacement for jagged effect
+                            point.x += (Math.random() - 0.5) * hexSize * 0.5;
+                            point.y += (Math.random() - 0.5) * hexSize * 0.5;
+                            point.z += (Math.random() - 0.5) * hexSize * 0.5;
+                            lightningPoints.push(point);
+                        }
+                        lightningPoints.push(lightningEnd);
+
+                        const lightningGeometry = new THREE.BufferGeometry().setFromPoints(lightningPoints);
+                        const lightningMaterial = new THREE.LineBasicMaterial({ color: 0x87ceeb, linewidth: 5 }); // Sky blue
+                        
+                        lightningGroup = new THREE.Line(lightningGeometry, lightningMaterial);
+                        scene.add(lightningGroup);
+
+                        // Add a temporary point light at the target for a flash effect
+                        fireboltLight = new THREE.PointLight(0x87ceeb, 3, 20); // Bright blue light
+                        fireboltLight.position.copy(lightningEnd);
+                        scene.add(fireboltLight);
+
+                        lightningActive = true;
+                        lightningDuration = lightningMaxDuration;
+                        showMessage(`Casting Lightning Bolt from ${currentActorId} to ${targetMiniId}!`);
+                        break;
+
+                    case 'magic missile':
+                        if (magicMissiles.length > 0) { showMessage('Magic Missiles are already in flight! Please wait.'); return; }
+
+                        // Clear old missiles if any
+                        magicMissiles.forEach(m => { scene.remove(m.mesh); if (m.mesh.geometry) m.mesh.geometry.dispose(); if (m.mesh.material) m.mesh.material.dispose(); });
+                        magicMissiles = [];
+
+                        // Spawn multiple magic missiles with a slight delay
+                        for (let i = 0; i < magicMissileCount; i++) {
+                            const missileMesh = new THREE.Mesh(magicMissileGeometry, magicMissileMaterial.clone());
+                            missileMesh.position.copy(sourceMini.position);
+                            scene.add(missileMesh);
+                            magicMissiles.push({
+                                mesh: missileMesh,
+                                start: sourceMini.position.clone(),
+                                target: targetMini.position.clone(),
+                                progress: 0,
+                                delayTimer: i * magicMissileDelay // Stagger launch
+                            });
+                        }
+                        showMessage(`Casting Magic Missile from ${currentActorId} to ${targetMiniId}!`);
+                        break;
+
+                    case 'fireball':
+                        if (fireballActive) { showMessage('A fireball is already in flight! Please wait.'); return; }
+
+                        // Clear old group if exists
+                        if (fireballGroup) {
+                            scene.remove(fireballGroup);
+                            fireballGroup.children.forEach(child => {
+                                if (child.geometry) child.geometry.dispose();
+                                if (child.material) child.material.dispose();
+                            });
+                            fireballGroup = null;
+                        }
+
+                        fireballStartPosition.copy(sourceMini.position);
+                        fireballTargetPosition.copy(targetMini.position);
+
+                        const fireballCoreGeometry = new THREE.SphereGeometry(1.5, 16, 16); // Larger sphere
+                        const fireballCoreMaterial = new THREE.MeshStandardMaterial({
+                            color: 0xff6600, // Fiery orange
+                            emissive: 0xff6600,
+                            emissiveIntensity: 2
+                        });
+                        const fireballCore = new THREE.Mesh(fireballCoreGeometry, fireballCoreMaterial);
+
+                        const fireballPointLight = new THREE.PointLight(0xffa500, 3, 30); // Bright orange light
+                        fireballPointLight.position.set(0, 0, 0);
+
+                        fireballGroup = new THREE.Group();
+                        fireballGroup.add(fireballCore);
+                        fireballGroup.add(fireballPointLight);
+                        fireballGroup.position.copy(fireballStartPosition);
+                        scene.add(fireballGroup);
+
+                        fireballActive = true;
+                        fireballProgress = 0;
+                        fireballExplosionParticles = []; // Clear old explosion particles
+                        fireballExplosionTimer = 0;
+                        showMessage(`Casting Fireball from ${currentActorId} to ${targetMiniId}!`);
+                        break;
+                }
+                return;
+            }
+
+
+            showMessage('Unknown command. Try "move [number] [direction]", "cast [spell] at [mini-ID]", or "swing sword".');
+        }
+
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // --- Firebolt Animation ---
+            if (fireboltActive && fireboltGroup) {
+                fireboltProgress += fireboltSpeed;
+                if (fireboltProgress >= 1) {
+                    fireboltActive = false;
+                    scene.remove(fireboltGroup);
+                    fireboltGroup.children.forEach(child => {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) child.material.dispose();
+                    });
+                    fireboltGroup = null;
+                    fireboltLight = null;
+                    fireboltParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); });
+                    fireboltParticles = [];
+                    showMessage('Firebolt hit target!');
+                } else {
+                    fireboltGroup.position.lerpVectors(fireboltStartPosition, fireboltTargetPosition, fireboltProgress);
+                    for (let i = 0; i < fireboltParticleSpawnRate; i++) {
+                        const particle = new THREE.Mesh(fireboltParticleGeometry, fireboltParticleMaterial.clone());
+                        particle.position.copy(fireboltGroup.position).add(
+                            new THREE.Vector3(
+                                (Math.random() - 0.5) * 1.5,
+                                (Math.random() - 0.5) * 1.5,
+                                (Math.random() - 0.5) * 1.5
+                            ).multiplyScalar(0.5)
+                        );
+                        particle.scale.setScalar(0.5 + Math.random() * 0.5);
+                        particle.userData.lifespan = fireboltParticleLifespan;
+                        fireboltParticles.push(particle);
+                        scene.add(particle);
+                    }
+                }
+            }
+
+            // Update and remove firebolt particles (used by firebolt and fireball trail)
+            const fireboltParticlesToRemove = [];
+            fireboltParticles.forEach((p, index) => {
+                p.userData.lifespan--;
+                p.material.opacity = p.userData.lifespan / fireboltParticleLifespan;
+                p.position.y -= 0.05;
+                p.scale.multiplyScalar(0.98);
+                if (p.userData.lifespan <= 0) {
+                    fireboltParticlesToRemove.push(index);
+                }
+            });
+            for (let i = fireboltParticlesToRemove.length - 1; i >= 0; i--) {
+                const index = fireboltParticlesToRemove[i];
+                const p = fireboltParticles[index];
+                scene.remove(p);
+                if (p.geometry) p.geometry.dispose();
+                if (p.material) p.material.dispose();
+                fireboltParticles.splice(index, 1);
+            }
+
+            // --- Lightning Animation ---
+            if (lightningActive && lightningGroup) {
+                lightningDuration--;
+                if (lightningDuration <= 0) {
+                    lightningActive = false;
+                    scene.remove(lightningGroup);
+                    if (lightningGroup.geometry) lightningGroup.geometry.dispose();
+                    if (lightningGroup.material) lightningGroup.material.dispose();
+                    lightningGroup = null;
+                    if (fireboltLight) { // Remove the temporary flash light
+                        scene.remove(fireboltLight);
+                        if (fireboltLight.dispose) fireboltLight.dispose();
+                        fireboltLight = null;
+                    }
+                    showMessage('Lightning Bolt strikes!');
+                } else {
+                    // Flash effect (can change color or intensity over time)
+                    const intensity = Math.sin((lightningMaxDuration - lightningDuration) / lightningMaxDuration * Math.PI) * 3; // Fade in/out
+                    if (fireboltLight) fireboltLight.intensity = intensity;
+                }
+            }
+
+            // --- Magic Missile Animation ---
+            const missilesToRemove = [];
+            magicMissiles.forEach((missile, index) => {
+                if (missile.delayTimer > 0) {
+                    missile.delayTimer--;
+                    return; // Don't move until delay is over
+                }
+
+                missile.progress += magicMissileSpeed;
+                if (missile.progress >= 1) {
+                    missile.progress = 1;
+                    scene.remove(missile.mesh);
+                    if (missile.mesh.geometry) missile.mesh.geometry.dispose();
+                    if (missile.mesh.material) missile.mesh.material.dispose();
+                    missilesToRemove.push(index);
+                } else {
+                    missile.mesh.position.lerpVectors(missile.start, missile.target, missile.progress);
+                }
+            });
+
+            // Remove hit missiles in reverse order
+            for (let i = missilesToRemove.length - 1; i >= 0; i--) {
+                magicMissiles.splice(missilesToRemove[i], 1);
+            }
+            // Only show message once all missiles have hit
+            if (!fireboltActive && !lightningActive && magicMissiles.length === 0 && !fireballActive && missilesToRemove.length > 0) { // Check if missiles were removed this frame and no other spell is active
+                 showMessage('Magic Missiles hit target!');
+            }
+
+
+            // --- Fireball Animation ---
+            if (fireballActive && fireballGroup) {
+                if (fireballProgress < 1) { // Flight phase
+                    fireballProgress += fireballSpeed;
+                    fireballGroup.position.lerpVectors(fireballStartPosition, fireballTargetPosition, fireballProgress);
+
+                    // Smaller particles trailing the fireball (re-use fireboltParticles array for this)
+                    for (let i = 0; i < fireboltParticleSpawnRate * 0.5; i++) { // Less dense trail than firebolt
+                        const particle = new THREE.Mesh(fireboltParticleGeometry, fireballExplosionParticleMaterial.clone());
+                        particle.position.copy(fireballGroup.position).add(
+                            new THREE.Vector3(
+                                (Math.random() - 0.5) * 1.5,
+                                (Math.random() - 0.5) * 1.5,
+                                (Math.random() - 0.5) * 1.5
+                            ).multiplyScalar(0.8)
+                        );
+                        particle.scale.setScalar(0.8 + Math.random() * 0.5);
+                        particle.userData.lifespan = fireboltParticleLifespan * 0.8;
+                        fireboltParticles.push(particle); // Add to the same array to be cleaned up
+                        scene.add(particle);
+                    }
+
+                } else { // Explosion phase
+                    if (fireballExplosionTimer === 0) { // On first frame of explosion
+                        scene.remove(fireballGroup); // Remove fireball core
+                        fireballGroup.children.forEach(child => {
+                            if (child.geometry) child.geometry.dispose();
+                            if (child.material) child.material.dispose();
+                        });
+                        fireballGroup = null;
+                        fireboltParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); }); // Clear trail
+                        fireboltParticles = [];
+
+                        // Generate explosion particles
+                        for (let i = 0; i < 50; i++) { // Many particles for explosion
+                            const particle = new THREE.Mesh(fireballExplosionParticleGeometry, fireballExplosionParticleMaterial.clone());
+                            particle.position.copy(fireballTargetPosition);
+                            // Random velocity for outward explosion
+                            particle.userData.velocity = new THREE.Vector3(
+                                (Math.random() - 0.5) * 2,
+                                Math.random() * 2, // Prefer upward explosion
+                                (Math.random() - 0.5) * 2
+                            );
+                            particle.userData.lifespan = fireballExplosionDuration;
+                            fireballExplosionParticles.push(particle);
+                            scene.add(particle);
+                        }
+                        showMessage('Fireball explodes!');
+                    }
+
+                    // Update explosion particles
+                    const explosionParticlesToRemove = [];
+                    fireballExplosionParticles.forEach((p, index) => {
+                        p.userData.lifespan--;
+                        p.position.add(p.userData.velocity);
+                        p.userData.velocity.multiplyScalar(0.95); // Slow down
+                        p.material.opacity = p.userData.lifespan / fireballExplosionDuration; // Fade out
+                        p.scale.multiplyScalar(1.02); // Grow slightly
+
+                        if (p.userData.lifespan <= 0) {
+                            explosionParticlesToRemove.push(index);
+                        }
+                    });
+
+                    for (let i = explosionParticlesToRemove.length - 1; i >= 0; i--) {
+                        const index = explosionParticlesToRemove[i];
+                        const p = fireballExplosionParticles[index];
+                        scene.remove(p);
+                        if (p.geometry) p.geometry.dispose();
+                        if (p.material) p.material.dispose();
+                        fireballExplosionParticles.splice(index, 1);
+                    }
+
+                    fireballExplosionTimer++;
+                    if (fireballExplosionTimer >= fireballExplosionDuration && fireballExplosionParticles.length === 0) { // Ensure all particles are gone too
+                        fireballActive = false;
+                        fireballExplosionTimer = 0;
+                    }
+                }
+            }
+
+            // --- Sword Swing Animation ---
+            if (swordSwingActive && swordSwingGroup) {
+                swordSwingProgress++;
+                if (swordSwingProgress >= swordSwingDuration) {
+                    swordSwingActive = false;
+                    scene.remove(swordSwingGroup);
+                    swordSwingGroup.children.forEach(child => {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) child.material.dispose();
+                    });
+                    swordSwingGroup = null;
+                    showMessage('Sword swing finished!');
+                } else {
+                    // Animate rotation from initial to final angle
+                    const swingAngle = Math.PI * (swordSwingProgress / swordSwingDuration) * 1.2 - (Math.PI * 0.6); // Swing from -0.6PI to +0.6PI
+                    swordSwingGroup.rotation.y = swingAngle; // Rotate around the mini's Y axis
+                }
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Start the application when the window loads.
+        window.onload = function() {
+            init();
+        };
+    </script>
+</body>
+</html>
